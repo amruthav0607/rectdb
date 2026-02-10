@@ -1,12 +1,13 @@
-import { auth, signOut } from "@/auth";
+import { auth } from "@/auth";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
-import { revalidatePath } from "next/cache";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { approveUser, rejectUser } from "@/app/actions/admin";
+import { handleSignOut } from "@/app/actions/auth";
 
 export default async function AdminPage() {
     const session = await auth();
@@ -18,29 +19,12 @@ export default async function AdminPage() {
     const pendingUsers = await db.select().from(users).where(eq(users.status, "pending"));
     const allUsers = await db.select().from(users);
 
-    async function approveUser(formData: FormData) {
-        "use server";
-        const userId = formData.get("userId") as string;
-        await db.update(users).set({ status: "active" }).where(eq(users.id, userId));
-        revalidatePath("/admin");
-    }
-
-    async function rejectUser(formData: FormData) {
-        "use server";
-        const userId = formData.get("userId") as string;
-        await db.update(users).set({ status: "rejected" }).where(eq(users.id, userId));
-        revalidatePath("/admin");
-    }
-
     return (
         <div className="flex min-h-screen flex-col items-center p-24 bg-gray-50">
             <Card className="w-full max-w-6xl">
                 <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle>Admin Dashboard</CardTitle>
-                    <form action={async () => {
-                        "use server"
-                        await signOut({ redirectTo: "/" });
-                    }}>
+                    <form action={handleSignOut}>
                         <Button variant="outline">Sign Out</Button>
                     </form>
                 </CardHeader>

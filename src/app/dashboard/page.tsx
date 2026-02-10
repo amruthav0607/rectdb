@@ -1,11 +1,12 @@
-import { auth, signOut } from "@/auth";
+import { auth } from "@/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
+import { handleSignOut } from "@/app/actions/auth";
 
 export default async function DashboardPage() {
     const session = await auth();
 
-    if (!session?.user) return null; // Should be handled by middleware
+    if (!session?.user) return null;
 
     return (
         <div className="flex min-h-screen flex-col items-center p-24 bg-gray-50">
@@ -13,10 +14,7 @@ export default async function DashboardPage() {
                 <CardHeader>
                     <div className="flex justify-between items-center">
                         <CardTitle>User Dashboard</CardTitle>
-                        <form action={async () => {
-                            "use server"
-                            await signOut();
-                        }}>
+                        <form action={handleSignOut}>
                             <Button variant="destructive">Sign Out</Button>
                         </form>
                     </div>

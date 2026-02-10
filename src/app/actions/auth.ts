@@ -5,7 +5,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
-import { signIn } from "@/auth";
+import { signIn, signOut } from "@/auth";
 import { AuthError } from "next-auth";
 
 const RegisterSchema = z.object({
@@ -30,7 +30,6 @@ export async function register(formData: z.infer<typeof RegisterSchema>) {
             return { error: "Email already in use" };
         }
 
-        // Check if this is the first user
         const allUsers = await db.select().from(users).limit(1);
         const isFirstUser = allUsers.length === 0;
 
@@ -63,4 +62,8 @@ export async function authenticate(prevState: string | undefined, formData: Form
         }
         throw error;
     }
+}
+
+export async function handleSignOut() {
+    await signOut({ redirectTo: "/" });
 }
