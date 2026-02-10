@@ -16,26 +16,23 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
 
         let fullText = "";
 
-        // Phase 1: Try Python API (Cloud-friendly)
+        // Phase 1: Try Refined Python API
         const host = "neon-admin-dashboard-two.vercel.app";
         const apiUrl = `https://${host}/api/transcript?videoId=${videoId}`;
 
-        console.log("[summarize] Phase 1: Fetching from API:", apiUrl);
+        console.log("[summarize] Phase 1: Fetching from Refined API:", apiUrl);
         try {
             const apiResponse = await fetch(apiUrl, { cache: 'no-store' });
-            if (apiResponse.ok) {
-                const result = await apiResponse.json();
-                if (result.success) {
-                    fullText = result.text;
-                    console.log("[summarize] API Success. Text length:", fullText.length);
-                } else {
-                    console.error("[summarize] API Error:", result.error);
-                }
+            const result = await apiResponse.json();
+            if (result.success) {
+                fullText = result.text;
+                console.log("[summarize] API Success. Text length:", fullText.length);
             } else {
-                console.error("[summarize] API HTTP Error:", apiResponse.status);
+                console.error("[summarize] API Business logic error:", result.error);
+                // Keep trying Phase 2
             }
         } catch (fetchError: any) {
-            console.error("[summarize] Phase 1 Exception:", fetchError.message);
+            console.error("[summarize] Phase 1 Network/Parse Exception:", fetchError.message);
         }
 
         // Phase 2: Fallback to JS Library
@@ -53,9 +50,9 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         }
 
         if (!fullText) {
-            console.error("[summarize] All transcript fetch methods failed.");
+            console.error("[summarize] All cloud methods blocked.");
             return {
-                error: "[TRANSCRIPT_FAIL] YouTube blocked the transcript request. This is common in cloud environments. Please try a different video or try again later."
+                error: "[TRANSCRIPT_BLOCKED] YouTube is temporarily restricting our server's access to this video's subtitles. This is common for popular videos or due to bot detection in cloud environments. Please try a different video (like a tutorial) or try again later."
             };
         }
 
