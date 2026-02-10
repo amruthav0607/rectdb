@@ -24,19 +24,10 @@ export default function LoginPage() {
     const router = useRouter();
 
     async function clientAction(formData: FormData) {
-        try {
-            const result = await authenticate(undefined, formData);
-            if (result) {
-                setErrorMessage(result);
-            } else {
-                // Redirect happens in server action or middleware usually, but if authenticate returns nothing on success
-                // we can redirect here or rely on server redirect. 
-                // However, next-auth signIn helper in server actions usually throws redirect error.
-                // If we catch it, we must rethrow it.
-            }
-        } catch (e) {
-            // If it's a redirect error, it will be caught by Next.js
-            console.error(e);
+        setErrorMessage(null);
+        const result = await authenticate(undefined, formData);
+        if (result) {
+            setErrorMessage(result);
         }
     }
 

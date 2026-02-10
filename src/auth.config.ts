@@ -13,8 +13,16 @@ export const authConfig = {
             const isOnDashboard = nextUrl.pathname.startsWith("/dashboard");
             const isOnAdmin = nextUrl.pathname.startsWith("/admin");
             const isOnStatusPage = ["/pending", "/rejected"].includes(nextUrl.pathname);
+            const isOnAuthPage = ["/login", "/register"].includes(nextUrl.pathname);
 
             if (isLoggedIn) {
+                if (isOnAuthPage) {
+                    if (role === "admin") return Response.redirect(new URL("/admin", nextUrl));
+                    if (status === "active") return Response.redirect(new URL("/dashboard", nextUrl));
+                    if (status === "pending") return Response.redirect(new URL("/pending", nextUrl));
+                    if (status === "rejected") return Response.redirect(new URL("/rejected", nextUrl));
+                }
+
                 if (role !== "admin") {
                     if (status === "pending" && nextUrl.pathname !== "/pending") {
                         return Response.redirect(new URL("/pending", nextUrl));
