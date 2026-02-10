@@ -28,8 +28,9 @@ export function YouTubeSummarizer() {
             } else if (result.success) {
                 setNotes(result.success);
             }
-        } catch (e) {
-            setError("Something went wrong. Please try again.");
+        } catch (e: any) {
+            console.error("UI Error:", e);
+            setError(e.message || "Something went wrong. Please try again.");
         } finally {
             setIsLoading(false);
         }

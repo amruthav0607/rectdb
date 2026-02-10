@@ -7,66 +7,66 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
     if (!videoUrl) return { error: "Please provide a YouTube URL." };
 
     try {
-        console.log("Starting summarization for URL:", videoUrl);
+        console.log("[summarize] Starting for URL:", videoUrl);
         const videoId = extractVideoId(videoUrl);
         if (!videoId) {
-            console.error("Invalid Video ID for URL:", videoUrl);
-            return { error: "Invalid YouTube URL." };
+            console.error("[summarize] Invalid Video ID:", videoUrl);
+            return { error: "Invalid YouTube URL. Please use a valid video link." };
         }
-
-        console.log("Fetching transcript using Python API for ID:", videoId);
-
-        // Construct the API URL. In production, we use the absolute URL.
-        const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
-        const host = process.env.VERCEL_URL || (process.env.NODE_ENV === "production" ? "neon-admin-dashboard-two.vercel.app" : "localhost:3003");
-        // Ensure we don't have double slashes if host ends with slash
-        const apiUrl = `${protocol}://${host}/api/transcript?videoId=${videoId}`;
 
         let fullText = "";
 
+        // 1. Try Python API (Cloud-friendly)
+        const host = "neon-admin-dashboard-two.vercel.app";
+        const apiUrl = `https://${host}/api/transcript?videoId=${videoId}`;
+
+        console.log("[summarize] Phase 1: Fetching from API:", apiUrl);
         try {
-            const apiResponse = await fetch(apiUrl);
+            const apiResponse = await fetch(apiUrl, { cache: 'no-store' });
             if (apiResponse.ok) {
                 const result = await apiResponse.json();
                 if (result.success) {
                     fullText = result.text;
+                    console.log("[summarize] API Success. Text length:", fullText.length);
                 } else {
-                    console.warn("Python API returned error:", result.error);
+                    console.error("[summarize] API Error:", result.error);
                 }
+            } else {
+                console.error("[summarize] API HTTP Error:", apiResponse.status);
             }
         } catch (fetchError: any) {
-            console.warn("Fetch failed:", fetchError.message);
+            console.error("[summarize] API Fetch Exception:", fetchError.message);
         }
 
-        // Fallback to local execution if API fetch failed (useful for local dev)
+        // 2. Fallback to JS Library
         if (!fullText) {
-            console.log("Attempting local fallback for transcript fetching...");
+            console.log("[summarize] Phase 2: Falling back to JS Library...");
             try {
-                const { execSync } = require("child_process");
-                const path = require("path");
-                const scriptPath = path.join(process.cwd(), "get_transcript.py");
-                const output = execSync(`python "${scriptPath}" ${videoId}`).toString();
-                const localResult = JSON.parse(output);
-                if (localResult.success) {
-                    fullText = localResult.text;
-                } else {
-                    return { error: localResult.error || "Failed to retrieve transcript." };
-                }
-            } catch (localError: any) {
-                console.error("Local fallback failed:", localError.message);
-                return { error: "Transcript service unavailable. Please check subtitles or try again later." };
+                const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId);
+                fullText = transcriptItems
+                    .map((item) => decode(item.text))
+                    .join(" ");
+                console.log("[summarize] JS Library Success. Text length:", fullText.length);
+            } catch (jsError: any) {
+                console.error("[summarize] JS Library Failure:", jsError.message);
             }
         }
 
-        console.log("Transcript obtained. Length:", fullText?.length);
-        console.log("Sending to AI for summarization...");
+        if (!fullText) {
+            console.error("[summarize] All transcript fetch methods failed.");
+            return {
+                error: "YouTube is currently preventing automated transcript retrieval for this video. This often happens due to bot detection in cloud environments. Please try a different video or try again later."
+            };
+        }
+
+        console.log("[summarize] Phase 3: AI Summarization...");
         const summary = await getAISummary(fullText);
-        console.log("AI Summary generated successfully.");
+        console.log("[summarize] Success!");
         return { success: summary };
 
     } catch (error: any) {
-        console.error("Summarization error details:", error);
-        return { error: error.message || "Failed to summarize video." };
+        console.error("[summarize] Unexpected Error:", error);
+        return { error: error.message || "An unexpected error occurred. Please try again." };
     }
 }
 
