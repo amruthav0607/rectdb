@@ -11,12 +11,12 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         const videoId = extractVideoId(videoUrl);
         if (!videoId) {
             console.error("[summarize] Invalid Video ID:", videoUrl);
-            return { error: "Invalid YouTube URL. Please use a valid video link." };
+            return { error: "[INVALID_URL] Please use a valid YouTube video link." };
         }
 
         let fullText = "";
 
-        // 1. Try Python API (Cloud-friendly)
+        // Phase 1: Try Python API (Cloud-friendly)
         const host = "neon-admin-dashboard-two.vercel.app";
         const apiUrl = `https://${host}/api/transcript?videoId=${videoId}`;
 
@@ -35,10 +35,10 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
                 console.error("[summarize] API HTTP Error:", apiResponse.status);
             }
         } catch (fetchError: any) {
-            console.error("[summarize] API Fetch Exception:", fetchError.message);
+            console.error("[summarize] Phase 1 Exception:", fetchError.message);
         }
 
-        // 2. Fallback to JS Library
+        // Phase 2: Fallback to JS Library
         if (!fullText) {
             console.log("[summarize] Phase 2: Falling back to JS Library...");
             try {
@@ -48,25 +48,31 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
                     .join(" ");
                 console.log("[summarize] JS Library Success. Text length:", fullText.length);
             } catch (jsError: any) {
-                console.error("[summarize] JS Library Failure:", jsError.message);
+                console.error("[summarize] Phase 2 Failure:", jsError.message);
             }
         }
 
         if (!fullText) {
             console.error("[summarize] All transcript fetch methods failed.");
             return {
-                error: "YouTube is currently preventing automated transcript retrieval for this video. This often happens due to bot detection in cloud environments. Please try a different video or try again later."
+                error: "[TRANSCRIPT_FAIL] YouTube blocked the transcript request. This is common in cloud environments. Please try a different video or try again later."
             };
         }
 
+        // Phase 3: AI Summarization
         console.log("[summarize] Phase 3: AI Summarization...");
-        const summary = await getAISummary(fullText);
-        console.log("[summarize] Success!");
-        return { success: summary };
+        try {
+            const summary = await getAISummary(fullText);
+            console.log("[summarize] Success!");
+            return { success: summary };
+        } catch (aiError: any) {
+            console.error("[summarize] Phase 3 Failure:", aiError.message);
+            return { error: `[AI_FAIL] ${aiError.message}` };
+        }
 
     } catch (error: any) {
         console.error("[summarize] Unexpected Error:", error);
-        return { error: error.message || "An unexpected error occurred. Please try again." };
+        return { error: `[GLOBAL_ERR] ${error.message || "Unknown error"}` };
     }
 }
 
