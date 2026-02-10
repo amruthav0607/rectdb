@@ -7,21 +7,31 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
     if (!videoUrl) return { error: "Please provide a YouTube URL." };
 
     try {
+        console.log("Starting summarization for URL:", videoUrl);
         const videoId = extractVideoId(videoUrl);
-        if (!videoId) return { error: "Invalid YouTube URL." };
+        if (!videoId) {
+            console.error("Invalid Video ID for URL:", videoUrl);
+            return { error: "Invalid YouTube URL." };
+        }
 
-        const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId);
+        console.log("Fetching transcript for ID:", videoId);
+        const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId).catch(() => []);
         const fullText = transcriptItems
             .map((item) => decode(item.text))
             .join(" ");
 
-        if (!fullText) return { error: "Could not retrieve transcript for this video." };
+        if (!fullText || transcriptItems.length === 0) {
+            console.error("No transcript found for ID:", videoId);
+            return { error: "No transcript available for this video. Please ensure the video has subtitles/captions enabled." };
+        }
 
-        // Summarize using OpenRouter
+        console.log("Transcript fetched. Length:", fullText.length);
+        console.log("Sending to AI for summarization...");
         const summary = await getAISummary(fullText);
+        console.log("AI Summary generated successfully.");
         return { success: summary };
     } catch (error: any) {
-        console.error("Summarization error:", error);
+        console.error("Summarization error details:", error);
         return { error: error.message || "Failed to summarize video." };
     }
 }

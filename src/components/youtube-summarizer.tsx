@@ -103,8 +103,9 @@ export function YouTubeSummarizer() {
                 )}
             </CardContent>
             {!notes && !isLoading && (
-                <CardFooter className="bg-slate-50/50 text-xs text-muted-foreground justify-center py-4 italic">
-                    Best for tutorials, lectures, and educational content.
+                <CardFooter className="bg-slate-50/50 text-xs text-muted-foreground flex-col gap-1 py-4 italic text-center">
+                    <p>Best for tutorials, lectures, and educational content.</p>
+                    <p className="text-[10px] opacity-70 font-sans NOT-italic">Note: Please use videos with Captions/Subtitles enabled.</p>
                 </CardFooter>
             )}
         </Card>
