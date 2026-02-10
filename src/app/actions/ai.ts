@@ -14,32 +14,55 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             return { error: "Invalid YouTube URL." };
         }
 
-        console.log("Fetching transcript using Python bridge for ID:", videoId);
+        console.log("Fetching transcript using Python API for ID:", videoId);
 
-        const { execSync } = require("child_process");
-        const path = require("path");
-        const scriptPath = path.join(process.cwd(), "get_transcript.py");
+        // Construct the API URL. In production, we use the absolute URL.
+        const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
+        const host = process.env.VERCEL_URL || (process.env.NODE_ENV === "production" ? "neon-admin-dashboard-two.vercel.app" : "localhost:3003");
+        // Ensure we don't have double slashes if host ends with slash
+        const apiUrl = `${protocol}://${host}/api/transcript?videoId=${videoId}`;
+
+        let fullText = "";
 
         try {
-            const output = execSync(`python "${scriptPath}" ${videoId}`).toString();
-            const result = JSON.parse(output);
-
-            if (!result.success) {
-                console.error("Python bridge error:", result.error);
-                return { error: result.error || "Failed to retrieve transcript." };
+            const apiResponse = await fetch(apiUrl);
+            if (apiResponse.ok) {
+                const result = await apiResponse.json();
+                if (result.success) {
+                    fullText = result.text;
+                } else {
+                    console.warn("Python API returned error:", result.error);
+                }
             }
-
-            const fullText = result.text;
-            console.log("Transcript fetched. Length:", fullText.length);
-            console.log("Sending to AI for summarization...");
-            const summary = await getAISummary(fullText);
-            console.log("AI Summary generated successfully.");
-            return { success: summary };
-
-        } catch (execError: any) {
-            console.error("Exec error:", execError.message);
-            return { error: "Failed to run transcript fetcher." };
+        } catch (fetchError: any) {
+            console.warn("Fetch failed:", fetchError.message);
         }
+
+        // Fallback to local execution if API fetch failed (useful for local dev)
+        if (!fullText) {
+            console.log("Attempting local fallback for transcript fetching...");
+            try {
+                const { execSync } = require("child_process");
+                const path = require("path");
+                const scriptPath = path.join(process.cwd(), "get_transcript.py");
+                const output = execSync(`python "${scriptPath}" ${videoId}`).toString();
+                const localResult = JSON.parse(output);
+                if (localResult.success) {
+                    fullText = localResult.text;
+                } else {
+                    return { error: localResult.error || "Failed to retrieve transcript." };
+                }
+            } catch (localError: any) {
+                console.error("Local fallback failed:", localError.message);
+                return { error: "Transcript service unavailable. Please check subtitles or try again later." };
+            }
+        }
+
+        console.log("Transcript obtained. Length:", fullText?.length);
+        console.log("Sending to AI for summarization...");
+        const summary = await getAISummary(fullText);
+        console.log("AI Summary generated successfully.");
+        return { success: summary };
 
     } catch (error: any) {
         console.error("Summarization error details:", error);
