@@ -14,22 +14,33 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             return { error: "Invalid YouTube URL." };
         }
 
-        console.log("Fetching transcript for ID:", videoId);
-        const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId).catch(() => []);
-        const fullText = transcriptItems
-            .map((item) => decode(item.text))
-            .join(" ");
+        console.log("Fetching transcript using Python bridge for ID:", videoId);
 
-        if (!fullText || transcriptItems.length === 0) {
-            console.error("No transcript found for ID:", videoId);
-            return { error: "No transcript available for this video. Please ensure the video has subtitles/captions enabled." };
+        const { execSync } = require("child_process");
+        const path = require("path");
+        const scriptPath = path.join(process.cwd(), "get_transcript.py");
+
+        try {
+            const output = execSync(`python "${scriptPath}" ${videoId}`).toString();
+            const result = JSON.parse(output);
+
+            if (!result.success) {
+                console.error("Python bridge error:", result.error);
+                return { error: result.error || "Failed to retrieve transcript." };
+            }
+
+            const fullText = result.text;
+            console.log("Transcript fetched. Length:", fullText.length);
+            console.log("Sending to AI for summarization...");
+            const summary = await getAISummary(fullText);
+            console.log("AI Summary generated successfully.");
+            return { success: summary };
+
+        } catch (execError: any) {
+            console.error("Exec error:", execError.message);
+            return { error: "Failed to run transcript fetcher." };
         }
 
-        console.log("Transcript fetched. Length:", fullText.length);
-        console.log("Sending to AI for summarization...");
-        const summary = await getAISummary(fullText);
-        console.log("AI Summary generated successfully.");
-        return { success: summary };
     } catch (error: any) {
         console.error("Summarization error details:", error);
         return { error: error.message || "Failed to summarize video." };

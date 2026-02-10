@@ -13,6 +13,7 @@
     "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^5.2.2",
     "@neondatabase/serverless": "^1.0.2",
+    "ai-youtube-transcript": "^1.0.4",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -28,6 +29,7 @@
     "react-hook-form": "^7.71.1",
     "react-markdown": "^10.1.0",
     "tailwind-merge": "^3.4.0",
+    "youtube-captions-scraper": "^2.0.3",
     "youtube-transcript": "^1.2.1",
     "zod": "^4.3.6"
   },
