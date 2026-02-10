@@ -15,37 +15,54 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         }
 
         let fullText = "";
+        const headerList = await headers();
+        const host = headerList.get("host") || "localhost:3000";
+        const protocol = host.includes("localhost") ? "http" : "https";
 
-        // Phase 1: Use local Next.js API route (uses yt-dlp locally)
+        // Phase 1: Try local yt-dlp-based route (works on localhost)
         try {
-            const headerList = await headers();
-            const host = headerList.get("host") || "localhost:3000";
-            const protocol = host.includes("localhost") ? "http" : "https";
-            const apiUrl = `${protocol}://${host}/api/transcript?videoId=${videoId}`;
-
-            console.log("[summarize] Phase 1: Fetching from API route:", apiUrl);
+            const apiUrl = `${protocol}://${host}/api/yt-transcript?videoId=${videoId}`;
+            console.log("[summarize] Phase 1: yt-dlp route:", apiUrl);
             const apiResponse = await fetch(apiUrl, { cache: "no-store" });
             const result = await apiResponse.json();
-            if (result.success && result.text) {
+            if (result.success && result.text && result.text.length > 50) {
                 fullText = result.text;
                 console.log("[summarize] Phase 1 Success. Text length:", fullText.length);
             } else {
-                console.error("[summarize] Phase 1 error:", result.error);
+                console.error("[summarize] Phase 1 returned no text:", result.error);
             }
         } catch (fetchError: any) {
             console.error("[summarize] Phase 1 Exception:", fetchError.message);
         }
 
-        // Phase 2: Direct YouTube captions scrape (inline fallback)
+        // Phase 2: Try Python API at /api/transcript (works on Vercel)
         if (!fullText) {
-            console.log("[summarize] Phase 2: Direct captions scrape...");
+            try {
+                const apiUrl = `${protocol}://${host}/api/transcript?videoId=${videoId}`;
+                console.log("[summarize] Phase 2: Python API:", apiUrl);
+                const apiResponse = await fetch(apiUrl, { cache: "no-store" });
+                const result = await apiResponse.json();
+                if (result.success && result.text && result.text.length > 50) {
+                    fullText = result.text;
+                    console.log("[summarize] Phase 2 Success. Text length:", fullText.length);
+                } else {
+                    console.error("[summarize] Phase 2 returned no text:", result.error);
+                }
+            } catch (fetchError: any) {
+                console.error("[summarize] Phase 2 Exception:", fetchError.message);
+            }
+        }
+
+        // Phase 3: Direct YouTube captions scrape (final fallback)
+        if (!fullText) {
+            console.log("[summarize] Phase 3: Direct captions scrape...");
             try {
                 fullText = await fetchCaptionsDirect(videoId);
                 if (fullText) {
-                    console.log("[summarize] Phase 2 Success. Text length:", fullText.length);
+                    console.log("[summarize] Phase 3 Success. Text length:", fullText.length);
                 }
             } catch (directError: any) {
-                console.error("[summarize] Phase 2 Failure:", directError.message);
+                console.error("[summarize] Phase 3 Failure:", directError.message);
             }
         }
 
@@ -56,14 +73,14 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             };
         }
 
-        // Phase 3: AI Summarization
-        console.log("[summarize] Phase 3: AI Summarization...");
+        // Phase 4: AI Summarization
+        console.log("[summarize] Phase 4: AI Summarization...");
         try {
             const summary = await getAISummary(fullText);
             console.log("[summarize] Success!");
             return { success: summary };
         } catch (aiError: any) {
-            console.error("[summarize] Phase 3 Failure:", aiError.message);
+            console.error("[summarize] Phase 4 Failure:", aiError.message);
             return { error: `[AI_FAIL] ${aiError.message}` };
         }
 
@@ -100,7 +117,6 @@ async function fetchCaptionsDirect(videoId: string): Promise<string> {
     }
     if (!tracks || tracks.length === 0) return "";
 
-    // Prefer English
     let captionUrl = null;
     for (const t of tracks) {
         if (t.languageCode === "en" || t.languageCode === "en-US") {
