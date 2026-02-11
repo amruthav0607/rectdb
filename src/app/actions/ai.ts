@@ -187,37 +187,47 @@ async function fetchCaptionsDirect(videoId: string): Promise<string> {
 }
 
 async function fetchFromInnerTube(videoId: string): Promise<string> {
-    try {
-        const payload = {
-            videoId: videoId,
-            context: {
-                client: {
-                    hl: "en", gl: "US", clientName: "WEB", clientVersion: "2.20241113.01.00",
-                    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                    utcOffsetMinutes: 0
-                }
-            },
-            playbackContext: { contentCheckOk: true, racyCheckOk: true }
-        };
+    // Try multiple InnerTube clients - ANDROID works from cloud IPs, WEB does not
+    const clients = [
+        { name: "ANDROID", version: "19.09.37", key: "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w" },
+        { name: "IOS", version: "19.09.3", key: "AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc" },
+        { name: "WEB", version: "2.20241113.01.00", key: "" }
+    ];
 
-        const res = await fetch("https://www.youtube.com/youtubei/v1/player", {
-            method: "POST",
-            body: JSON.stringify(payload),
-            headers: {
-                "Content-Type": "application/json",
-                "X-Youtube-Client-Name": "1",
-                "X-Youtube-Client-Version": "2.20241113.01.00"
+    for (const client of clients) {
+        try {
+            const payload = {
+                videoId: videoId,
+                context: {
+                    client: {
+                        hl: "en", gl: "US",
+                        clientName: client.name,
+                        clientVersion: client.version
+                    }
+                },
+                playbackContext: { contentCheckOk: true, racyCheckOk: true }
+            };
+
+            const apiUrl = "https://www.youtube.com/youtubei/v1/player" + (client.key ? `?key=${client.key}` : "");
+            const res = await fetch(apiUrl, {
+                method: "POST",
+                body: JSON.stringify(payload),
+                headers: { "Content-Type": "application/json" }
+            });
+
+            if (!res.ok) continue;
+            const data = await res.json();
+            const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+            if (tracks && tracks.length > 0) {
+                console.log(`[InnerTube] ${client.name} returned ${tracks.length} tracks`);
+                return await fetchFromTrack(tracks);
             }
-        });
-
-        if (!res.ok) return "";
-        const data = await res.json();
-        const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-        if (tracks && tracks.length > 0) return await fetchFromTrack(tracks);
-        return "";
-    } catch (e: any) {
-        return "";
+            console.log(`[InnerTube] ${client.name}: 0 tracks`);
+        } catch (e: any) {
+            console.error(`[InnerTube] ${client.name} failed:`, e.message);
+        }
     }
+    return "";
 }
 
 async function fetchFromTrack(tracks: any[]): Promise<string> {
