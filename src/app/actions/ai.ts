@@ -2,6 +2,7 @@
 
 import { decode } from "html-entities";
 import { headers } from "next/headers";
+import { YoutubeTranscript } from "youtube-transcript";
 
 export async function summarizeYouTubeVideo(videoUrl: string) {
     if (!videoUrl) return { error: "Please provide a YouTube URL." };
@@ -53,6 +54,20 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             }
         }
 
+        // Phase 2.5: Try youtube-transcript npm library
+        if (!fullText) {
+            console.log("[summarize] Phase 2.5: youtube-transcript library...");
+            try {
+                const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId);
+                if (transcriptItems && transcriptItems.length > 0) {
+                    fullText = transcriptItems.map((item: any) => decode(item.text)).join(" ");
+                    console.log("[summarize] Phase 2.5 Success. Text length:", fullText.length);
+                }
+            } catch (libError: any) {
+                console.error("[summarize] Phase 2.5 Failure:", libError.message);
+            }
+        }
+
         // Phase 3: Direct YouTube captions scrape (final fallback)
         if (!fullText) {
             console.log("[summarize] Phase 3: Direct captions scrape...");
@@ -99,77 +114,70 @@ function extractVideoId(url: string) {
 async function fetchCaptionsDirect(videoId: string): Promise<string> {
     try {
         console.log("[fetchCaptionsDirect] Attempting direct scrape for:", videoId);
-        const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-            headers: {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-                "Accept-Language": "en-US,en;q=0.9",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            },
-            cache: 'no-store'
-        });
 
-        if (!res.ok) {
-            console.error("[fetchCaptionsDirect] YT page fetch failed status:", res.status);
-            return "";
-        }
+        // Try both Desktop and Mobile User Agents
+        const userAgents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
+        ];
 
-        const html = await res.text();
+        for (const ua of userAgents) {
+            try {
+                const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+                    headers: {
+                        "User-Agent": ua,
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                    },
+                    cache: 'no-store'
+                });
 
-        // Robust regex to find captionTracks in the player response
-        const captionsMatch = html.match(/"captionTracks"\s*:\s*(\[.*?\])/) ||
-            html.match(/\\?"captionTracks\\?"\s*:\s*(\\?\[.*?\\?\])/);
+                if (!res.ok) continue;
 
-        if (!captionsMatch) {
-            console.warn("[fetchCaptionsDirect] No captionTracks found in HTML payload.");
-            // Check if we got a bot-blocked page
-            if (html.includes("recaptcha") || html.includes("consent.youtube.com")) {
-                console.error("[fetchCaptionsDirect] YouTube blocked the direct scrape (bot detection).");
+                const html = await res.text();
+
+                // Robust regex for captionTracks
+                const captionsMatch = html.match(/"captionTracks"\s*:\s*(\[.*?\])/) ||
+                    html.match(/\\?"captionTracks\\?"\s*:\s*(\\?\[.*?\\?\])/);
+
+                if (!captionsMatch) continue;
+
+                let tracksStr = captionsMatch[1]
+                    .replace(/\\"/g, '"')
+                    .replace(/\\\\/g, '\\');
+
+                let tracks = JSON.parse(tracksStr);
+                if (!tracks || tracks.length === 0) continue;
+
+                let captionUrl = tracks.find((t: any) => t.languageCode === "en" || t.languageCode === "en-US")?.baseUrl ||
+                    tracks[0].baseUrl;
+
+                if (!captionUrl) continue;
+
+                if (!captionUrl.includes("fmt=")) {
+                    captionUrl += "&fmt=vtt";
+                }
+
+                console.log("[fetchCaptionsDirect] Success with UA:", ua.slice(0, 30));
+                const captionsRes = await fetch(captionUrl);
+                const text = await captionsRes.text();
+
+                // Basic VTT/XML/Plain extractor
+                const parts = text.split('\n')
+                    .filter(line => !line.match(/^\d+$/) && !line.includes('-->') && line.trim() !== '' && !line.startsWith('WEBVTT'))
+                    .map(line => decode(line.replace(/<[^>]*>/g, '').trim()))
+                    .filter(line => line.length > 0);
+
+                return parts.join(" ");
+            } catch (innerE) {
+                console.error("[fetchCaptionsDirect] UA attempt failed:", innerE);
             }
-            return "";
         }
 
-        let tracksStr = captionsMatch[1]
-            .replace(/\\"/g, '"')
-            .replace(/\\\\/g, '\\');
-
-        let tracks;
-        try {
-            tracks = JSON.parse(tracksStr);
-        } catch (e) {
-            console.error("[fetchCaptionsDirect] JSON parse failed for tracks:", e);
-            return "";
-        }
-
-        if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
-            console.warn("[fetchCaptionsDirect] Empty tracks list.");
-            return "";
-        }
-
-        // Try to find English or English-US
-        let captionUrl = tracks.find((t: any) => t.languageCode === "en" || t.languageCode === "en-US")?.baseUrl ||
-            tracks[0].baseUrl;
-
-        if (!captionUrl) return "";
-
-        // Ensure format=text for cleaner extraction
-        if (!captionUrl.includes("fmt=")) {
-            captionUrl += "&fmt=vtt"; // Use VTT or text if possible
-        }
-
-        console.log("[fetchCaptionsDirect] Fetching captions from:", captionUrl);
-        const captionsRes = await fetch(captionUrl);
-        const text = await captionsRes.text();
-
-        // Basic VTT/XML parser
-        const parts = text.split('\n')
-            .filter(line => !line.match(/^\d+$/) && !line.includes('-->') && line.trim() !== '' && !line.startsWith('WEBVTT'))
-            .map(line => decode(line.replace(/<[^>]*>/g, '').trim()))
-            .filter(line => line.length > 0);
-
-        return parts.join(" ");
+        return "";
 
     } catch (error: any) {
-        console.error("[fetchCaptionsDirect] Error:", error.message);
+        console.error("[fetchCaptionsDirect] Global Error:", error.message);
         return "";
     }
 }
