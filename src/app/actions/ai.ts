@@ -81,6 +81,19 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             }
         }
 
+        // Phase 2.7: InnerTube API (Resilient)
+        if (!fullText) {
+            console.log("[summarize] Phase 2.7: InnerTube API...");
+            try {
+                fullText = await fetchFromInnerTube(videoId);
+                if (fullText) {
+                    console.log("[summarize] Phase 2.7 Success.");
+                }
+            } catch (innerErr: any) {
+                console.error("[summarize] Phase 2.7 Failure:", innerErr.message);
+            }
+        }
+
         // Phase 3: Ultimate Direct Scrape (Mobile-Friendly)
         if (!fullText) {
             console.log("[summarize] Phase 3: Ultimate Scraper...");
@@ -97,7 +110,7 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         if (!fullText) {
             console.error("[summarize] All methods failed.");
             return {
-                error: "[TRANSCRIPT_BLOCKED] This video's subtitles are currently restricted by YouTube on cloud servers. This usually happens with auto-generated captions on viral videos. Please try a different video or try again in 10 minutes."
+                error: "[TRANSCRIPT_BLOCKED] YouTube is temporarily restricting our server's IP address. This is common for very new or viral videos. Please try a different video or use your local development server which is currently working."
             };
         }
 
@@ -125,13 +138,12 @@ function extractVideoId(url: string) {
 
 /**
  * Enhanced fetchCaptionsDirect for cloud environments
- * Handles mobile-style HTML and InnerTube JSON fallback
+ * Handles mobile-style HTML and better regex
  */
 async function fetchCaptionsDirect(videoId: string): Promise<string> {
     try {
         const url = `https://www.youtube.com/watch?v=${videoId}`;
 
-        // Try multiple headers to bypass blocks
         const headersSet = [
             {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -149,34 +161,33 @@ async function fetchCaptionsDirect(videoId: string): Promise<string> {
                 if (!res.ok) continue;
                 const html = await res.text();
 
-                // 1. Try Desktop-style ytInitialPlayerResponse
-                const playerResponseMatch = html.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
-                if (playerResponseMatch) {
-                    const parsed = JSON.parse(playerResponseMatch[1]);
-                    const tracks = parsed?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-                    if (tracks && tracks.length > 0) {
-                        return await fetchFromTrack(tracks);
+                const patterns = [
+                    /ytInitialPlayerResponse\s*=\s*({.+?});/s,
+                    /ytInitialPlayerResponse\s*:\s*({.+?})\s*,\s*responseContext/s,
+                    /var\s+ytInitialPlayerResponse\s*=\s*({.+?});/s,
+                    /ytInitialPlayerResponse\s*=\s*({.+?})\s*(?:;|\n|<\/script>)/s
+                ];
+
+                for (const pattern of patterns) {
+                    const match = html.match(pattern);
+                    if (match) {
+                        try {
+                            const parsed = JSON.parse(match[1]);
+                            const tracks = parsed?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+                            if (tracks && Array.isArray(tracks) && tracks.length > 0) {
+                                return await fetchFromTrack(tracks);
+                            }
+                        } catch { }
                     }
                 }
 
-                // 2. Try Mobile-style ytInitialPlayerResponse (unquoted or differently formatted)
-                const mobileMatch = html.match(/ytInitialPlayerResponse\s*:\s*({.+?})\s*,\s*responseContext/);
-                if (mobileMatch) {
-                    try {
-                        const parsed = JSON.parse(mobileMatch[1]);
-                        const tracks = parsed?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-                        if (tracks && tracks.length > 0) {
-                            return await fetchFromTrack(tracks);
-                        }
-                    } catch { }
-                }
-
-                // 3. Try searching for captions in the raw HTML string (desperate mode)
                 if (html.includes("captionTracks")) {
                     const tracksMatch = html.match(/"captionTracks"\s*:\s*(\[.*?\])/);
                     if (tracksMatch) {
-                        const tracks = JSON.parse(tracksMatch[1]);
-                        return await fetchFromTrack(tracks);
+                        try {
+                            const tracks = JSON.parse(tracksMatch[1]);
+                            return await fetchFromTrack(tracks);
+                        } catch { }
                     }
                 }
             } catch (innerE) {
@@ -187,6 +198,49 @@ async function fetchCaptionsDirect(videoId: string): Promise<string> {
         return "";
     } catch (e: any) {
         console.error("[fetchCaptionsDirect] Global failure:", e.message);
+        return "";
+    }
+}
+
+/**
+ * Direct InnerTube Player API call
+ * This uses the official YouTube mobile app API
+ */
+async function fetchFromInnerTube(videoId: string): Promise<string> {
+    try {
+        const payload = {
+            videoId: videoId,
+            context: {
+                client: {
+                    hl: "en",
+                    gl: "US",
+                    clientName: "ANDROID",
+                    clientVersion: "17.05.33",
+                    userAgent: "com.google.android.youtube/17.05.33 (Linux; U; Android 11; en_US; Pixel 4 XL; Build/RP1A.200720.009) gzip",
+                    androidSdkVersion: 30
+                }
+            }
+        };
+
+        const res = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
+            method: "POST",
+            body: JSON.stringify(payload),
+            headers: {
+                "Content-Type": "application/json",
+                "User-Agent": "com.google.android.youtube/17.05.33 (Linux; U; Android 11; en_US; Pixel 4 XL; Build/RP1A.200720.009) gzip"
+            }
+        });
+
+        if (!res.ok) return "";
+        const data = await res.json();
+        const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+
+        if (tracks && tracks.length > 0) {
+            return await fetchFromTrack(tracks);
+        }
+        return "";
+    } catch (e: any) {
+        console.error("[fetchFromInnerTube] Error:", e.message);
         return "";
     }
 }
