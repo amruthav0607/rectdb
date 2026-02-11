@@ -19,23 +19,20 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         const host = headerList.get("host") || "localhost:3000";
         const protocol = host.includes("localhost") ? "http" : "https";
 
-        // Phase 1: Try local yt-dlp-based route (works on localhost)
-        try {
-            const apiUrl = `${protocol}://${host}/api/yt-transcript?videoId=${videoId}`;
-            console.log("[summarize] Phase 1: yt-dlp route:", apiUrl);
-            const apiResponse = await fetch(apiUrl, { cache: "no-store" });
-            const result = await apiResponse.json();
-            if (result.success && result.text && result.text.length > 50) {
-                fullText = result.text;
-                console.log("[summarize] Phase 1 Success. Text length:", fullText.length);
-            } else {
-                console.error("[summarize] Phase 1 returned no text:", result.error);
+        // Phase 1: Try Direct YouTube captions scrape (Fastest & most robust on Vercel)
+        if (!fullText) {
+            console.log("[summarize] Phase 1: Direct captions scrape...");
+            try {
+                fullText = await fetchCaptionsDirect(videoId);
+                if (fullText && fullText.length > 50) {
+                    console.log("[summarize] Phase 1 Success. Text length:", fullText.length);
+                }
+            } catch (directError: any) {
+                console.error("[summarize] Phase 1 Failure:", directError.message);
             }
-        } catch (fetchError: any) {
-            console.error("[summarize] Phase 1 Exception:", fetchError.message);
         }
 
-        // Phase 2: Try Python API at /api/simple (works on Vercel)
+        // Phase 2: Try Python API at /api/simple (Backup fetching)
         if (!fullText) {
             try {
                 const apiUrl = `${protocol}://${host}/api/simple?videoId=${videoId}`;
@@ -46,23 +43,26 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
                     fullText = result.text;
                     console.log("[summarize] Phase 2 Success. Text length:", fullText.length);
                 } else {
-                    console.error("[summarize] Phase 2 error:", result.error);
+                    console.log("[summarize] Phase 2 skipped or failed:", result.error || "No text");
                 }
             } catch (fetchError: any) {
                 console.error("[summarize] Phase 2 Exception:", fetchError.message);
             }
         }
 
-        // Phase 3: Direct YouTube captions scrape (final fallback)
-        if (!fullText) {
-            console.log("[summarize] Phase 3: Direct captions scrape...");
+        // Phase 3: Try local yt-dlp-based route (ONLY on localhost/dev)
+        if (!fullText && host.includes("localhost")) {
             try {
-                fullText = await fetchCaptionsDirect(videoId);
-                if (fullText) {
+                const apiUrl = `${protocol}://${host}/api/yt-transcript?videoId=${videoId}`;
+                console.log("[summarize] Phase 3: Local yt-dlp route:", apiUrl);
+                const apiResponse = await fetch(apiUrl, { cache: "no-store" });
+                const result = await apiResponse.json();
+                if (result.success && result.text && result.text.length > 50) {
+                    fullText = result.text;
                     console.log("[summarize] Phase 3 Success. Text length:", fullText.length);
                 }
-            } catch (directError: any) {
-                console.error("[summarize] Phase 3 Failure:", directError.message);
+            } catch (fetchError: any) {
+                console.error("[summarize] Phase 3 Exception:", fetchError.message);
             }
         }
 
