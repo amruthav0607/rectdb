@@ -13,7 +13,7 @@ class handler(BaseHTTPRequestHandler):
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
         except Exception as ie:
-            self._send_json({"success": False, "error": "Environment setup issue on Vercel. Please check deployment logs."}, 200)
+            self._send_json({"success": False, "error": f"Import error: {str(ie)}"}, 200)
             return
 
         try:
@@ -26,45 +26,29 @@ class handler(BaseHTTPRequestHandler):
                 return
 
             try:
-                # Use instance-based API
-                api = YouTubeTranscriptApi()
-                
-                # Try to list transcripts first (more robust)
+                # Simple direct fetch - works with youtube-transcript-api 1.x
+                transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'en-US'])
+                if transcript:
+                    text = " ".join([entry.get('text', '') for entry in transcript])
+                    if text and len(text) > 20:
+                        self._send_json({"success": True, "text": text})
+                        return
+            except Exception as e1:
+                # Try auto-generated captions (any language)
                 try:
-                    transcript_list = api.list_transcripts(video_id)
-                    
-                    # 1. Try manual transcripts (English preferred)
-                    try:
-                        t = transcript_list.find_transcript(['en', 'en-US'])
-                    except:
-                        # 2. Try generated transcripts (English preferred)
-                        try:
-                            t = transcript_list.find_generated_transcript(['en', 'en-US'])
-                        except:
-                            # 3. Take whatever is available first
-                            t = next(iter(transcript_list))
-
-                    if t:
-                        data = t.fetch()
-                        text = " ".join([d.get('text', '') for d in data])
-                        if text:
+                    transcript = YouTubeTranscriptApi.get_transcript(video_id)
+                    if transcript:
+                        text = " ".join([entry.get('text', '') for entry in transcript])
+                        if text and len(text) > 20:
                             self._send_json({"success": True, "text": text})
                             return
-                except Exception as le:
-                    # If list_transcripts fails, it's often a block
-                    error_msg = str(le)
-                    if "blocked" in error_msg.lower() or "403" in error_msg:
-                        self._send_json({"success": False, "error": "[BLOCK] YouTube blocked cloud IP for metadata."}, 200)
+                except Exception as e2:
+                    error_msg = str(e2)
+                    if "blocked" in error_msg.lower() or "403" in error_msg or "sign" in error_msg.lower():
+                        self._send_json({"success": False, "error": "YouTube blocked this request. Fallback mode will be triggered."}, 200)
                         return
-                    raise le
 
-                self._send_json({"success": False, "error": "No transcript found for this video."}, 200)
-
-            except Exception as e:
-                error_msg = str(e)
-                if "blocked" in error_msg.lower() or "403" in error_msg or "sign-in" in error_msg.lower():
-                    error_msg = "[BLOCK] YouTube blocked this request."
-                self._send_json({"success": False, "error": error_msg}, 200)
+            self._send_json({"success": False, "error": "No transcript found for this video."}, 200)
 
         except Exception as ge:
             self._send_json({"success": False, "error": f"Internal error: {str(ge)}"}, 500)
