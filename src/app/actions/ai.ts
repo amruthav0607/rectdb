@@ -138,7 +138,6 @@ function extractVideoId(url: string) {
 
 /**
  * Enhanced fetchCaptionsDirect for cloud environments
- * Handles mobile-style HTML and better regex
  */
 async function fetchCaptionsDirect(videoId: string): Promise<string> {
     try {
@@ -204,7 +203,7 @@ async function fetchCaptionsDirect(videoId: string): Promise<string> {
 
 /**
  * Direct InnerTube Player API call
- * This uses the official YouTube mobile app API
+ * Using WEB client with better bypass params
  */
 async function fetchFromInnerTube(videoId: string): Promise<string> {
     try {
@@ -214,20 +213,25 @@ async function fetchFromInnerTube(videoId: string): Promise<string> {
                 client: {
                     hl: "en",
                     gl: "US",
-                    clientName: "ANDROID",
-                    clientVersion: "17.05.33",
-                    userAgent: "com.google.android.youtube/17.05.33 (Linux; U; Android 11; en_US; Pixel 4 XL; Build/RP1A.200720.009) gzip",
-                    androidSdkVersion: 30
+                    clientName: "WEB",
+                    clientVersion: "2.20241113.01.00",
+                    userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                    utcOffsetMinutes: 0
                 }
+            },
+            playbackContext: {
+                contentCheckOk: true,
+                racyCheckOk: true
             }
         };
 
-        const res = await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
+        const res = await fetch("https://www.youtube.com/youtubei/v1/player", {
             method: "POST",
             body: JSON.stringify(payload),
             headers: {
                 "Content-Type": "application/json",
-                "User-Agent": "com.google.android.youtube/17.05.33 (Linux; U; Android 11; en_US; Pixel 4 XL; Build/RP1A.200720.009) gzip"
+                "X-Youtube-Client-Name": "1",
+                "X-Youtube-Client-Version": "2.20241113.01.00"
             }
         });
 
