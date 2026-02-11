@@ -7,6 +7,7 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
     if (!videoUrl) return { error: "Please provide a YouTube URL." };
 
     try {
+        const startTime = Date.now();
         console.log("[summarize] Starting for URL:", videoUrl);
         const videoId = extractVideoId(videoUrl);
         if (!videoId) {
@@ -16,34 +17,40 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
 
         let fullText = "";
         const headerList = await headers();
-        const host = headerList.get("host") || "localhost:3000";
+        const host = headerList.get("host") || "neon-admin-dashboard-two.vercel.app";
         const protocol = host.includes("localhost") ? "http" : "https";
 
         // Phase 1: Try Direct YouTube captions scrape (Fastest & most robust on Vercel)
         if (!fullText) {
             console.log("[summarize] Phase 1: Direct captions scrape...");
             try {
+                const s1 = Date.now();
                 fullText = await fetchCaptionsDirect(videoId);
+                const d1 = Date.now() - s1;
                 if (fullText && fullText.length > 50) {
-                    console.log("[summarize] Phase 1 Success. Text length:", fullText.length);
+                    console.log(`[summarize] Phase 1 Success (${d1}ms). Text length:`, fullText.length);
+                } else {
+                    console.error(`[summarize] Phase 1 failed or empty (${d1}ms)`);
                 }
             } catch (directError: any) {
-                console.error("[summarize] Phase 1 Failure:", directError.message);
+                console.error("[summarize] Phase 1 Exception:", directError.message);
             }
         }
 
         // Phase 2: Try Python API at /api/simple (Backup fetching)
         if (!fullText) {
             try {
+                const s2 = Date.now();
                 const apiUrl = `${protocol}://${host}/api/simple?videoId=${videoId}`;
-                console.log("[summarize] Phase 2: Python API (simple):", apiUrl);
+                console.log("[summarize] Phase 2: Calling Python API:", apiUrl);
                 const apiResponse = await fetch(apiUrl, { cache: "no-store" });
                 const result = await apiResponse.json();
+                const d2 = Date.now() - s2;
                 if (result.success && result.text && result.text.length > 50) {
                     fullText = result.text;
-                    console.log("[summarize] Phase 2 Success. Text length:", fullText.length);
+                    console.log(`[summarize] Phase 2 Success (${d2}ms). Text length:`, fullText.length);
                 } else {
-                    console.log("[summarize] Phase 2 skipped or failed:", result.error || "No text");
+                    console.log(`[summarize] Phase 2 failed (${d2}ms):`, result.error || "No text");
                 }
             } catch (fetchError: any) {
                 console.error("[summarize] Phase 2 Exception:", fetchError.message);
@@ -53,13 +60,14 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         // Phase 3: Try local yt-dlp-based route (ONLY on localhost/dev)
         if (!fullText && host.includes("localhost")) {
             try {
+                const s3 = Date.now();
                 const apiUrl = `${protocol}://${host}/api/yt-transcript?videoId=${videoId}`;
-                console.log("[summarize] Phase 3: Local yt-dlp route:", apiUrl);
                 const apiResponse = await fetch(apiUrl, { cache: "no-store" });
                 const result = await apiResponse.json();
+                const d3 = Date.now() - s3;
                 if (result.success && result.text && result.text.length > 50) {
                     fullText = result.text;
-                    console.log("[summarize] Phase 3 Success. Text length:", fullText.length);
+                    console.log(`[summarize] Phase 3 Success (${d3}ms).`);
                 }
             } catch (fetchError: any) {
                 console.error("[summarize] Phase 3 Exception:", fetchError.message);
@@ -69,15 +77,20 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         if (!fullText) {
             console.error("[summarize] All methods failed.");
             return {
-                error: "[TRANSCRIPT_BLOCKED] Could not fetch this video's subtitles. Please make sure the video has Captions/CC enabled, or try a different video."
+                error: "[TRANSCRIPT_BLOCKED] Could not fetch subtitles. YouTube may be limiting access to this video from our server. Please try again in a moment or try another video."
             };
         }
 
+        const transcriptTime = Date.now() - startTime;
+        console.log(`[summarize] Transcript fetched in ${transcriptTime}ms. Moving to AI summary.`);
+
         // Phase 4: AI Summarization
-        console.log("[summarize] Phase 4: AI Summarization...");
         try {
+            const aiStart = Date.now();
             const summary = await getAISummary(fullText);
-            console.log("[summarize] Success!");
+            const aiTime = Date.now() - aiStart;
+            const totalTime = Date.now() - startTime;
+            console.log(`[summarize] AI Success in ${aiTime}ms. Total: ${totalTime}ms.`);
             return { success: summary };
         } catch (aiError: any) {
             console.error("[summarize] Phase 4 Failure:", aiError.message);
