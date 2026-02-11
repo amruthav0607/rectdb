@@ -55,7 +55,7 @@ export default async function Home() {
       </main>
 
       <footer className="py-8 text-gray-400 text-sm">
-        © 2026 Neon Admin Dash. All rights reserved.
+        © 2026 Neon Admin Dash. All rights reserved. [v1.2.0-stabilized]
       </footer>
     </div>
   );
