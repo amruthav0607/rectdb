@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
 
     if (!videoId) {
         return NextResponse.json(
-            { success: false, error: "No videoId provided" },
+            { success: false, error: "No videoId provided", v: "v4" },
             { status: 400 }
         );
     }
