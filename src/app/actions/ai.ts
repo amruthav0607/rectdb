@@ -20,102 +20,129 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         const host = headerList.get("host") || "neon-admin-dashboard-two.vercel.app";
         const protocol = host.includes("localhost") ? "http" : "https";
 
-        // Phase 1: Try Direct YouTube captions scrape (Fastest & most robust on Vercel)
-        if (!fullText) {
-            console.log("[summarize] Phase 1: Direct captions scrape...");
-            try {
-                const s1 = Date.now();
-                fullText = await fetchCaptionsDirect(videoId);
-                const d1 = Date.now() - s1;
-                if (fullText && fullText.length > 50) {
-                    console.log(`[summarize] Phase 1 Success (${d1}ms). Text length:`, fullText.length);
-                } else {
-                    console.error(`[summarize] Phase 1 failed or empty (${d1}ms)`);
-                }
-            } catch (directError: any) {
-                console.error("[summarize] Phase 1 Exception:", directError.message);
-            }
-        }
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 12000); // 12-second total budget
 
-        // Phase 2: Try Python API at /api/simple (Backup fetching)
-        if (!fullText) {
-            try {
-                const s2 = Date.now();
-                const apiUrl = `${protocol}://${host}/api/simple?videoId=${videoId}`;
-                console.log("[summarize] Phase 2: Calling Python API:", apiUrl);
-                const apiResponse = await fetch(apiUrl, { cache: "no-store" });
-                const result = await apiResponse.json();
-                const d2 = Date.now() - s2;
-                if (result.success && result.text && result.text.length > 50) {
-                    fullText = result.text;
-                    console.log(`[summarize] Phase 2 Success (${d2}ms). Text length:`, fullText.length);
-                } else {
-                    console.log(`[summarize] Phase 2 failed (${d2}ms):`, result.error || "No text");
-                }
-            } catch (fetchError: any) {
-                console.error("[summarize] Phase 2 Exception:", fetchError.message);
-            }
-        }
-
-        // Phase 3: Try local yt-dlp-based route (ONLY on localhost/dev)
-        if (!fullText && host.includes("localhost")) {
-            try {
-                const s3 = Date.now();
-                const apiUrl = `${protocol}://${host}/api/yt-transcript?videoId=${videoId}`;
-                const apiResponse = await fetch(apiUrl, { cache: "no-store" });
-                const result = await apiResponse.json();
-                const d3 = Date.now() - s3;
-                if (result.success && result.text && result.text.length > 50) {
-                    fullText = result.text;
-                    console.log(`[summarize] Phase 3 Success (${d3}ms).`);
-                }
-            } catch (fetchError: any) {
-                console.error("[summarize] Phase 3 Exception:", fetchError.message);
-            }
-        }
-
-        if (!fullText) {
-            console.error("[summarize] All methods failed.");
-            return {
-                error: "[TRANSCRIPT_BLOCKED] Could not fetch subtitles. YouTube may be limiting access to this video from our server. Please try again in a moment or try another video."
-            };
-        }
-
-        const transcriptTime = Date.now() - startTime;
-        console.log(`[summarize] Transcript fetched in ${transcriptTime}ms. Moving to AI summary.`);
-
-        // Phase 4: AI Summarization
         try {
-            const aiStart = Date.now();
-            const summary = await getAISummary(fullText);
-            const aiTime = Date.now() - aiStart;
-            const totalTime = Date.now() - startTime;
-            console.log(`[summarize] AI Success in ${aiTime}ms. Total: ${totalTime}ms.`);
-            return { success: summary };
-        } catch (aiError: any) {
-            console.error("[summarize] Phase 4 Failure:", aiError.message);
-            return { error: `[AI_FAIL] ${aiError.message}` };
-        }
+            // Phase 1: Try Direct YouTube captions scrape (Fastest & most robust on Vercel)
+            if (!fullText) {
+                console.log("[summarize] Phase 1: Direct captions scrape...");
+                try {
+                    const s1 = Date.now();
+                    fullText = await fetchCaptionsDirect(videoId, controller.signal);
+                    const d1 = Date.now() - s1;
+                    if (fullText && fullText.length > 50) {
+                        console.log(`[summarize] Phase 1 Success (${d1}ms). Text length:`, fullText.length);
+                    } else {
+                        console.error(`[summarize] Phase 1 failed or empty (${d1}ms)`);
+                    }
+                } catch (directError: any) {
+                    if (directError.name === "AbortError") throw directError;
+                    console.error("[summarize] Phase 1 Exception:", directError.message);
+                }
+            }
 
-    } catch (error: any) {
-        console.error("[summarize] Unexpected Error:", error);
-        return { error: `[GLOBAL_ERR] ${error.message || "Unknown error"}` };
+            // Phase 2: Try Python API at /api/simple (Backup fetching)
+            if (!fullText) {
+                try {
+                    const s2 = Date.now();
+                    const apiUrl = `${protocol}://${host}/api/simple?videoId=${videoId}`;
+                    console.log("[summarize] Phase 2: Calling Python API:", apiUrl);
+                    const apiResponse = await fetch(apiUrl, {
+                        cache: "no-store",
+                        signal: controller.signal,
+                    });
+                    const result = await apiResponse.json();
+                    const d2 = Date.now() - s2;
+                    if (result.success && result.text && result.text.length > 50) {
+                        fullText = result.text;
+                        console.log(`[summarize] Phase 2 Success (${d2}ms). Text length:`, fullText.length);
+                    } else {
+                        console.log(`[summarize] Phase 2 failed (${d2}ms):`, result.error || "No text");
+                    }
+                } catch (fetchError: any) {
+                    if (fetchError.name === "AbortError") throw fetchError;
+                    console.error("[summarize] Phase 2 Exception:", fetchError.message);
+                }
+            }
+
+            // Phase 3: Try local yt-dlp-based route (ONLY on localhost/dev)
+            if (!fullText && host.includes("localhost")) {
+                try {
+                    const s3 = Date.now();
+                    const apiUrl = `${protocol}://${host}/api/yt-transcript?videoId=${videoId}`;
+                    const apiResponse = await fetch(apiUrl, {
+                        cache: "no-store",
+                        signal: controller.signal,
+                    });
+                    const result = await apiResponse.json();
+                    const d3 = Date.now() - s3;
+                    if (result.success && result.text && result.text.length > 50) {
+                        fullText = result.text;
+                        console.log(`[summarize] Phase 3 Success (${d3}ms).`);
+                    }
+                } catch (fetchError: any) {
+                    if (fetchError.name === "AbortError") throw fetchError;
+                    console.error("[summarize] Phase 3 Exception:", fetchError.message);
+                }
+            }
+
+            if (!fullText) {
+                clearTimeout(timeoutId);
+                console.error("[summarize] All methods failed.");
+                return {
+                    error: "[TRANSCRIPT_BLOCKED] Could not fetch subtitles. YouTube may be limiting access to this video from our server. Please try another video.",
+                };
+            }
+
+            const transcriptTime = Date.now() - startTime;
+            console.log(`[summarize] Transcript fetched in ${transcriptTime}ms. Moving to AI summary.`);
+
+            // Phase 4: AI Summarization
+            try {
+                const aiStart = Date.now();
+                const summary = await getAISummary(fullText, controller.signal);
+                const aiTime = Date.now() - aiStart;
+                const totalTime = Date.now() - startTime;
+                console.log(`[summarize] AI Success in ${aiTime}ms. Total: ${totalTime}ms.`);
+                clearTimeout(timeoutId);
+                return { success: summary };
+            } catch (aiError: any) {
+                if (aiError.name === "AbortError") throw aiError;
+                clearTimeout(timeoutId);
+                console.error("[summarize] Phase 4 Failure:", aiError.message);
+                return { error: `[AI_FAIL] ${aiError.message}` };
+            }
+        } catch (error: any) {
+            clearTimeout(timeoutId);
+            if (error.name === "AbortError") {
+                console.error("[summarize] Operation timed out (12s limit).");
+                return {
+                    error: "[TIMEOUT] The server is taking too long to process this video. Please try a shorter video or try again later.",
+                };
+            }
+            console.error("[summarize] Unexpected Error:", error);
+            return { error: `[GLOBAL_ERR] ${error.message || "Unknown error"}` };
+        }
+    } catch (outerError: any) {
+        return { error: `[ACTION_CRASH] ${outerError.message || "Unknown error"}` };
     }
 }
 
 function extractVideoId(url: string) {
     const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
     const match = url.match(regExp);
-    return (match && match[7].length === 11) ? match[7] : null;
+    return match && match[7].length === 11 ? match[7] : null;
 }
 
-async function fetchCaptionsDirect(videoId: string): Promise<string> {
+async function fetchCaptionsDirect(videoId: string, signal?: AbortSignal): Promise<string> {
     const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
         headers: {
             "User-Agent":
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
             "Accept-Language": "en-US,en;q=0.9",
         },
+        signal,
     });
     const html = await res.text();
 
@@ -140,7 +167,7 @@ async function fetchCaptionsDirect(videoId: string): Promise<string> {
     if (!captionUrl) captionUrl = tracks[0].baseUrl;
     if (!captionUrl) return "";
 
-    const captionsRes = await fetch(captionUrl);
+    const captionsRes = await fetch(captionUrl, { signal });
     const xml = await captionsRes.text();
 
     const parts: string[] = [];
@@ -153,7 +180,7 @@ async function fetchCaptionsDirect(videoId: string): Promise<string> {
     return parts.join(" ");
 }
 
-async function getAISummary(text: string) {
+async function getAISummary(text: string, signal?: AbortSignal) {
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) throw new Error("OpenRouter API key not found in environment.");
 
@@ -162,23 +189,27 @@ async function getAISummary(text: string) {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
-            "Authorization": `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
             "HTTP-Referer": "https://neon-admin-dashboard-two.vercel.app",
             "X-Title": "Neon Admin Dashboard",
         },
+        signal,
         body: JSON.stringify({
             model: "google/gemini-2.0-flash-001",
             messages: [
                 {
                     role: "system",
-                    content: "You are an expert educational assistant. Your task is to summarize the following YouTube video transcript and generate clean, structured study notes. Use markdown for formatting, including headers, bullet points, and bold text."
+                    content:
+                        "You are an expert educational assistant. Your task is to summarize the following YouTube video transcript and generate clean, structured study notes. Use markdown for formatting, including headers, bullet points, and bold text.",
                 },
                 {
                     role: "user",
-                    content: `Please summarize this transcript and create study notes:\n\n${truncatedText}`
-                }
+                    content: `Please summarize this transcript and create study notes:\n\n${truncatedText}`,
+                },
             ],
+            // Low temperature for speed and consistency
+            temperature: 0.1,
         }),
     });
 
