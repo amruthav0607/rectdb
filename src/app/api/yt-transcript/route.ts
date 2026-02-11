@@ -1,4 +1,3 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { execSync } from "child_process";
 import { decode } from "html-entities";
@@ -81,8 +80,9 @@ function fetchWithYtDlp(videoId: string): string {
 
         // Parse XML to extract text
         const textParts: string[] = [];
-        const re = /<text[^>]*>(.*?)<\/text>/gs;
-        let m;
+        // Using [^]* or [\s\S]* instead of /s flag for compatibility with ES2017
+        const re = /<text[^>]*>([\s\S]*?)<\/text>/g;
+        let m: RegExpExecArray | null;
         while ((m = re.exec(xmlContent)) !== null) {
             let text = m[1];
             // Decode HTML entities
@@ -105,8 +105,8 @@ function fetchWithYtDlp(videoId: string): string {
         const xmlContent = fs.readFileSync(foundFile, 'utf-8');
 
         const textParts: string[] = [];
-        const re = /<text[^>]*>(.*?)<\/text>/gs;
-        let m;
+        const re = /<text[^>]*>([\s\S]*?)<\/text>/g;
+        let m: RegExpExecArray | null;
         while ((m = re.exec(xmlContent)) !== null) {
             let text = m[1];
             text = decode(text);
@@ -171,8 +171,8 @@ async function fetchTranscriptDirect(videoId: string): Promise<string | null> {
     const captionsXml = await captionsResponse.text();
 
     const textParts: string[] = [];
-    const textRegex = /<text[^>]*>(.*?)<\/text>/g;
-    let match;
+    const textRegex = /<text[^>]*>([\s\S]*?)<\/text>/g;
+    let match: RegExpExecArray | null;
     while ((match = textRegex.exec(captionsXml)) !== null) {
         textParts.push(decode(match[1]));
     }
