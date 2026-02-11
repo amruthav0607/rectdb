@@ -4,6 +4,8 @@ import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
 import { handleSignOut } from "@/app/actions/auth";
 import { YouTubeSummarizer } from "@/components/youtube-summarizer";
 
+export const maxDuration = 60;
+
 export default async function DashboardPage() {
     const session = await auth();
 

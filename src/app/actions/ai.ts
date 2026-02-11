@@ -161,10 +161,10 @@ async function fetchCaptionsDirect(videoId: string): Promise<string> {
                 const html = await res.text();
 
                 const patterns = [
-                    /ytInitialPlayerResponse\s*=\s*({.+?});/s,
-                    /ytInitialPlayerResponse\s*:\s*({.+?})\s*,\s*responseContext/s,
-                    /var\s+ytInitialPlayerResponse\s*=\s*({.+?});/s,
-                    /ytInitialPlayerResponse\s*=\s*({.+?})\s*(?:;|\n|<\/script>)/s
+                    /ytInitialPlayerResponse\s*=\s*(\{[\s\S]+?\});/m,
+                    /ytInitialPlayerResponse\s*:\s*(\{[\s\S]+?\})\s*,\s*responseContext/m,
+                    /var\s+ytInitialPlayerResponse\s*=\s*(\{[\s\S]+?\});/m,
+                    /ytInitialPlayerResponse\s*=\s*(\{[\s\S]+?\})\s*(?:;|\n|<\/script>)/m
                 ];
 
                 for (const pattern of patterns) {
@@ -189,7 +189,7 @@ async function fetchCaptionsDirect(videoId: string): Promise<string> {
                         } catch { }
                     }
                 }
-            } catch (innerE) {
+            } catch (innerE: any) {
                 console.error("[fetchCaptionsDirect] Attempt failed:", innerE.message);
             }
         }
@@ -268,7 +268,7 @@ async function fetchFromTrack(tracks: any[]): Promise<string> {
 
 async function getAISummary(text: string) {
     const apiKey = process.env.OPENROUTER_API_KEY;
-    if (!apiKey) throw new Error("OpenRouter API key not found in environment.");
+    if (!apiKey) return "Error: OpenRouter API key not found in Vercel environment. Please add it to your project settings.";
 
     const truncatedText = text.slice(0, 15000);
 
