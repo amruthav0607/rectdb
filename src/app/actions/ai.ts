@@ -35,18 +35,19 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             console.error("[summarize] Phase 1 Exception:", fetchError.message);
         }
 
-        // Phase 2: Try Python API at /api/transcript (works on Vercel)
+        // Phase 2: Try Python API at /api/yt_api (works on Vercel)
         if (!fullText) {
             try {
-                const apiUrl = `${protocol}://${host}/api/transcript?videoId=${videoId}`;
-                console.log("[summarize] Phase 2: Python API:", apiUrl);
+                // We try both /api/yt_api (new name) and /api/transcript (fallback)
+                const apiUrl = `${protocol}://${host}/api/yt_api?videoId=${videoId}`;
+                console.log("[summarize] Phase 2: Python API (yt_api):", apiUrl);
                 const apiResponse = await fetch(apiUrl, { cache: "no-store" });
                 const result = await apiResponse.json();
                 if (result.success && result.text && result.text.length > 50) {
                     fullText = result.text;
-                    console.log("[summarize] Phase 2 Success. Text length:", fullText.length);
+                    console.log("[summarize] Phase 2 (yt_api) Success. Text length:", fullText.length);
                 } else {
-                    console.error("[summarize] Phase 2 returned no text:", result.error);
+                    console.error("[summarize] Phase 2 (yt_api) error:", result.error);
                 }
             } catch (fetchError: any) {
                 console.error("[summarize] Phase 2 Exception:", fetchError.message);

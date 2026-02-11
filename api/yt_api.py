@@ -28,7 +28,7 @@ class handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                self.wfile.write(json.dumps({"success": True, "text": full_text}).encode())
+                self.wfile.write(json.dumps({"success": True, "text": full_text, "v": "v3-instance-fix"}).encode())
                 return
             except Exception as e1:
                 print(f"[transcript.py] Direct fetch failed: {e1}")
