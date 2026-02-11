@@ -97,47 +97,81 @@ function extractVideoId(url: string) {
 }
 
 async function fetchCaptionsDirect(videoId: string): Promise<string> {
-    const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-        headers: {
-            "User-Agent":
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            "Accept-Language": "en-US,en;q=0.9",
-        },
-    });
-    const html = await res.text();
-
-    const captionsMatch = html.match(/"captionTracks"\s*:\s*(\[.*?\])/);
-    if (!captionsMatch) return "";
-
-    let tracks;
     try {
-        tracks = JSON.parse(captionsMatch[1]);
-    } catch {
+        console.log("[fetchCaptionsDirect] Attempting direct scrape for:", videoId);
+        const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            },
+            cache: 'no-store'
+        });
+
+        if (!res.ok) {
+            console.error("[fetchCaptionsDirect] YT page fetch failed status:", res.status);
+            return "";
+        }
+
+        const html = await res.text();
+
+        // Robust regex to find captionTracks in the player response
+        const captionsMatch = html.match(/"captionTracks"\s*:\s*(\[.*?\])/) ||
+            html.match(/\\?"captionTracks\\?"\s*:\s*(\\?\[.*?\\?\])/);
+
+        if (!captionsMatch) {
+            console.warn("[fetchCaptionsDirect] No captionTracks found in HTML payload.");
+            // Check if we got a bot-blocked page
+            if (html.includes("recaptcha") || html.includes("consent.youtube.com")) {
+                console.error("[fetchCaptionsDirect] YouTube blocked the direct scrape (bot detection).");
+            }
+            return "";
+        }
+
+        let tracksStr = captionsMatch[1]
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, '\\');
+
+        let tracks;
+        try {
+            tracks = JSON.parse(tracksStr);
+        } catch (e) {
+            console.error("[fetchCaptionsDirect] JSON parse failed for tracks:", e);
+            return "";
+        }
+
+        if (!tracks || !Array.isArray(tracks) || tracks.length === 0) {
+            console.warn("[fetchCaptionsDirect] Empty tracks list.");
+            return "";
+        }
+
+        // Try to find English or English-US
+        let captionUrl = tracks.find((t: any) => t.languageCode === "en" || t.languageCode === "en-US")?.baseUrl ||
+            tracks[0].baseUrl;
+
+        if (!captionUrl) return "";
+
+        // Ensure format=text for cleaner extraction
+        if (!captionUrl.includes("fmt=")) {
+            captionUrl += "&fmt=vtt"; // Use VTT or text if possible
+        }
+
+        console.log("[fetchCaptionsDirect] Fetching captions from:", captionUrl);
+        const captionsRes = await fetch(captionUrl);
+        const text = await captionsRes.text();
+
+        // Basic VTT/XML parser
+        const parts = text.split('\n')
+            .filter(line => !line.match(/^\d+$/) && !line.includes('-->') && line.trim() !== '' && !line.startsWith('WEBVTT'))
+            .map(line => decode(line.replace(/<[^>]*>/g, '').trim()))
+            .filter(line => line.length > 0);
+
+        return parts.join(" ");
+
+    } catch (error: any) {
+        console.error("[fetchCaptionsDirect] Error:", error.message);
         return "";
     }
-    if (!tracks || tracks.length === 0) return "";
-
-    let captionUrl = null;
-    for (const t of tracks) {
-        if (t.languageCode === "en" || t.languageCode === "en-US") {
-            captionUrl = t.baseUrl;
-            break;
-        }
-    }
-    if (!captionUrl) captionUrl = tracks[0].baseUrl;
-    if (!captionUrl) return "";
-
-    const captionsRes = await fetch(captionUrl);
-    const xml = await captionsRes.text();
-
-    const parts: string[] = [];
-    const re = /<text[^>]*>(.*?)<\/text>/g;
-    let m;
-    while ((m = re.exec(xml)) !== null) {
-        parts.push(decode(m[1]));
-    }
-
-    return parts.join(" ");
 }
 
 async function getAISummary(text: string) {
