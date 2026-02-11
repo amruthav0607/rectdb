@@ -20,22 +20,26 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         const headerList = await headers();
         const host = headerList.get("host") || "localhost:3000";
         const protocol = host.includes("localhost") ? "http" : "https";
+        const isLocal = host.includes("localhost");
 
-        // Phase 1: Try local yt-dlp-based route (works on localhost)
+        // Phase 1: Try local yt-dlp-based route (works on localhost, needs more time)
         try {
             const apiUrl = `${protocol}://${host}/api/yt-transcript?videoId=${videoId}`;
             console.log("[summarize] Phase 1: yt-dlp route:", apiUrl);
-            const apiResponse = await fetch(apiUrl, { cache: "no-store", signal: AbortSignal.timeout(3000) });
+            const apiResponse = await fetch(apiUrl, {
+                cache: "no-store",
+                signal: AbortSignal.timeout(isLocal ? 25000 : 3000)
+            });
             const result = await apiResponse.json();
             if (result.success && result.text && result.text.length > 50) {
                 fullText = result.text;
                 console.log("[summarize] Phase 1 Success.");
             }
         } catch (fetchError: any) {
-            console.error("[summarize] Phase 1 Attempt skipped/failed:", fetchError.message);
+            console.error("[summarize] Phase 1 Exception:", fetchError.message);
         }
 
-        // Phase 2: InnerTube API (FAST & RESILIENT) - Moved up for Vercel 10s limit
+        // Phase 2: InnerTube API (FAST & RESILIENT)
         if (!fullText) {
             console.log("[summarize] Phase 2: InnerTube API...");
             try {
@@ -53,7 +57,10 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             try {
                 const apiUrl = `${protocol}://${host}/api/simple?videoId=${videoId}`;
                 console.log("[summarize] Phase 3: Python API (simple):", apiUrl);
-                const apiResponse = await fetch(apiUrl, { cache: "no-store", signal: AbortSignal.timeout(4000) });
+                const apiResponse = await fetch(apiUrl, {
+                    cache: "no-store",
+                    signal: AbortSignal.timeout(isLocal ? 10000 : 4000)
+                });
                 const result = await apiResponse.json();
                 if (result.success && result.text && result.text.length > 50) {
                     fullText = result.text;
@@ -66,7 +73,7 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             }
         }
 
-        // Phase 4: youtube-transcript lib (FAST)
+        // Phase 4: youtube-transcript lib
         if (!fullText) {
             console.log("[summarize] Phase 4: youtube-transcript...");
             try {
@@ -80,7 +87,7 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             }
         }
 
-        // Phase 5: Ultimate Direct Scrape (Mobile-Friendly)
+        // Phase 5: Ultimate Direct Scrape
         if (!fullText) {
             console.log("[summarize] Phase 5: Ultimate Scraper...");
             try {
@@ -93,7 +100,7 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             }
         }
 
-        // Phase 6: youtube-captions-scraper (Final fallback)
+        // Phase 6: youtube-captions-scraper
         if (!fullText) {
             console.log("[summarize] Phase 6: youtube-captions-scraper...");
             try {
@@ -110,7 +117,7 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         if (!fullText) {
             console.error("[summarize] All methods failed.");
             return {
-                error: "[TRANSCRIPT_BLOCKED] YouTube is temporarily restricting our server's IP address for this video. Use the local development server (localhost:3000) to summarize this video, or try another video link."
+                error: "[TRANSCRIPT_BLOCKED] Could not fetch the transcript for this video. The video may not have captions enabled, or YouTube is blocking our request. Please try a different video."
             };
         }
 
@@ -146,7 +153,7 @@ async function fetchCaptionsDirect(videoId: string): Promise<string> {
 
         for (const headers of headersSet) {
             try {
-                const res = await fetch(url, { headers, cache: 'no-store', signal: AbortSignal.timeout(3000) });
+                const res = await fetch(url, { headers, cache: 'no-store' });
                 if (!res.ok) continue;
                 const html = await res.text();
 
@@ -169,8 +176,8 @@ async function fetchCaptionsDirect(videoId: string): Promise<string> {
                         } catch { }
                     }
                 }
-            } catch (innerE) {
-                console.error("[fetchCaptionsDirect] Attempt failed:", (innerE as any).message);
+            } catch (innerE: any) {
+                console.error("[fetchCaptionsDirect] Attempt failed:", innerE.message);
             }
         }
         return "";
@@ -200,8 +207,7 @@ async function fetchFromInnerTube(videoId: string): Promise<string> {
                 "Content-Type": "application/json",
                 "X-Youtube-Client-Name": "1",
                 "X-Youtube-Client-Version": "2.20241113.01.00"
-            },
-            signal: AbortSignal.timeout(4000)
+            }
         });
 
         if (!res.ok) return "";
@@ -219,7 +225,7 @@ async function fetchFromTrack(tracks: any[]): Promise<string> {
     const captionUrl = track.baseUrl;
     if (!captionUrl) return "";
 
-    const timedTextRes = await fetch(captionUrl + "&fmt=json3", { signal: AbortSignal.timeout(3000) });
+    const timedTextRes = await fetch(captionUrl + "&fmt=json3");
     const json = await timedTextRes.json();
     if (json.events) {
         const text = json.events
@@ -247,11 +253,10 @@ async function getAISummary(text: string) {
         body: JSON.stringify({
             model: "google/gemini-2.0-flash-001",
             messages: [
-                { role: "system", content: "You are an expert summarizer. Create clear study notes in markdown." },
-                { role: "user", content: `Please summarize:\n\n${truncatedText}` }
+                { role: "system", content: "You are an expert educational assistant. Your task is to summarize the following YouTube video transcript and generate clean, structured study notes. Use markdown for formatting, including headers, bullet points, and bold text." },
+                { role: "user", content: `Please summarize this transcript and create study notes:\n\n${truncatedText}` }
             ],
         }),
-        signal: AbortSignal.timeout(8000)
     });
 
     const data = await response.json();
