@@ -29,9 +29,7 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             const result = await apiResponse.json();
             if (result.success && result.text && result.text.length > 50) {
                 fullText = result.text;
-                console.log("[summarize] Phase 1 Success. Text length:", fullText.length);
-            } else {
-                console.error("[summarize] Phase 1 returned no text:", result.error);
+                console.log("[summarize] Phase 1 Success.");
             }
         } catch (fetchError: any) {
             console.error("[summarize] Phase 1 Exception:", fetchError.message);
@@ -46,50 +44,50 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
                 const result = await apiResponse.json();
                 if (result.success && result.text && result.text.length > 50) {
                     fullText = result.text;
-                    console.log("[summarize] Phase 2 Success. Text length:", fullText.length);
+                    console.log("[summarize] Phase 2 Success.");
                 } else {
-                    console.error("[summarize] Phase 2 error:", result.error);
+                    console.error("[summarize] Phase 2 result:", result.error);
                 }
             } catch (fetchError: any) {
                 console.error("[summarize] Phase 2 Exception:", fetchError.message);
             }
         }
 
-        // Phase 2.5: Try youtube-transcript npm library
+        // Phase 2.5: youtube-transcript lib
         if (!fullText) {
-            console.log("[summarize] Phase 2.5: youtube-transcript library...");
+            console.log("[summarize] Phase 2.5: youtube-transcript...");
             try {
                 const transcriptItems = await YoutubeTranscript.fetchTranscript(videoId);
                 if (transcriptItems && transcriptItems.length > 0) {
                     fullText = transcriptItems.map((item: any) => decode(item.text)).join(" ");
-                    console.log("[summarize] Phase 2.5 Success. Text length:", fullText.length);
+                    console.log("[summarize] Phase 2.5 Success.");
                 }
             } catch (libError: any) {
                 console.error("[summarize] Phase 2.5 Failure:", libError.message);
             }
         }
 
-        // Phase 2.6: Try youtube-captions-scraper
+        // Phase 2.6: youtube-captions-scraper
         if (!fullText) {
             console.log("[summarize] Phase 2.6: youtube-captions-scraper...");
             try {
                 const captions = await getSubtitles({ videoID: videoId, lang: 'en' });
                 if (captions && captions.length > 0) {
                     fullText = captions.map((c: any) => decode(c.text)).join(" ");
-                    console.log("[summarize] Phase 2.6 Success. Text length:", fullText.length);
+                    console.log("[summarize] Phase 2.6 Success.");
                 }
             } catch (scraperErr: any) {
                 console.error("[summarize] Phase 2.6 Failure:", scraperErr.message);
             }
         }
 
-        // Phase 3: Direct YouTube captions scrape (final fallback)
+        // Phase 3: Ultimate Direct Scrape (Mobile-Friendly)
         if (!fullText) {
             console.log("[summarize] Phase 3: Ultimate Scraper...");
             try {
                 fullText = await fetchCaptionsDirect(videoId);
                 if (fullText) {
-                    console.log("[summarize] Phase 3 Success. Text length:", fullText.length);
+                    console.log("[summarize] Phase 3 Success.");
                 }
             } catch (directError: any) {
                 console.error("[summarize] Phase 3 Failure:", directError.message);
@@ -99,7 +97,7 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         if (!fullText) {
             console.error("[summarize] All methods failed.");
             return {
-                error: "[TRANSCRIPT_BLOCKED] This video's subtitles are currently restricted by YouTube on cloud servers. This usually happens with very new or viral videos. Please try a different video or try again later."
+                error: "[TRANSCRIPT_BLOCKED] This video's subtitles are currently restricted by YouTube on cloud servers. This usually happens with auto-generated captions on viral videos. Please try a different video or try again in 10 minutes."
             };
         }
 
@@ -107,7 +105,6 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         console.log("[summarize] Phase 4: AI Summarization...");
         try {
             const summary = await getAISummary(fullText);
-            console.log("[summarize] Success!");
             return { success: summary };
         } catch (aiError: any) {
             console.error("[summarize] Phase 4 Failure:", aiError.message);
@@ -126,66 +123,89 @@ function extractVideoId(url: string) {
     return (match && match[7].length === 11) ? match[7] : null;
 }
 
+/**
+ * Enhanced fetchCaptionsDirect for cloud environments
+ * Handles mobile-style HTML and InnerTube JSON fallback
+ */
 async function fetchCaptionsDirect(videoId: string): Promise<string> {
     try {
-        console.log("[fetchCaptionsDirect] Attempting ultimate search for:", videoId);
+        const url = `https://www.youtube.com/watch?v=${videoId}`;
 
-        const res = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
-            headers: {
+        // Try multiple headers to bypass blocks
+        const headersSet = [
+            {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
                 "Accept-Language": "en-US,en;q=0.9",
             },
-            cache: 'no-store'
-        });
+            {
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+        ];
 
-        if (!res.ok) return "";
-        const html = await res.text();
+        for (const headers of headersSet) {
+            try {
+                const res = await fetch(url, { headers, cache: 'no-store' });
+                if (!res.ok) continue;
+                const html = await res.text();
 
-        // Find the initial player response JSON
-        const playerResponseMatch = html.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
-        if (!playerResponseMatch) {
-            console.warn("[fetchCaptionsDirect] Could not find ytInitialPlayerResponse");
-            return "";
-        }
+                // 1. Try Desktop-style ytInitialPlayerResponse
+                const playerResponseMatch = html.match(/ytInitialPlayerResponse\s*=\s*({.+?});/);
+                if (playerResponseMatch) {
+                    const parsed = JSON.parse(playerResponseMatch[1]);
+                    const tracks = parsed?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+                    if (tracks && tracks.length > 0) {
+                        return await fetchFromTrack(tracks);
+                    }
+                }
 
-        let playerResponse;
-        try {
-            playerResponse = JSON.parse(playerResponseMatch[1]);
-        } catch (e) {
-            console.error("[fetchCaptionsDirect] Failed to parse playerResponse JSON");
-            return "";
-        }
+                // 2. Try Mobile-style ytInitialPlayerResponse (unquoted or differently formatted)
+                const mobileMatch = html.match(/ytInitialPlayerResponse\s*:\s*({.+?})\s*,\s*responseContext/);
+                if (mobileMatch) {
+                    try {
+                        const parsed = JSON.parse(mobileMatch[1]);
+                        const tracks = parsed?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+                        if (tracks && tracks.length > 0) {
+                            return await fetchFromTrack(tracks);
+                        }
+                    } catch { }
+                }
 
-        const captions = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-        if (!captions || !Array.isArray(captions) || captions.length === 0) {
-            console.warn("[fetchCaptionsDirect] No caption tracks in playerResponse");
-            return "";
-        }
-
-        // Pick English or default
-        const track = captions.find((t: any) => t.languageCode === 'en' || t.languageCode === 'en-US') || captions[0];
-        const captionUrl = track.baseUrl;
-        if (!captionUrl) return "";
-
-        console.log("[fetchCaptionsDirect] Fetching timed text from:", captionUrl.slice(0, 50));
-        const timedTextRes = await fetch(captionUrl + "&fmt=json3");
-        const timedText = await timedTextRes.json();
-
-        // Extract text from json3 format (modern YouTube API)
-        if (timedText.events) {
-            const lines = timedText.events
-                .filter((event: any) => event.segs)
-                .map((event: any) => event.segs.map((seg: any) => seg.utf8).join(""))
-                .join(" ");
-            return decode(lines);
+                // 3. Try searching for captions in the raw HTML string (desperate mode)
+                if (html.includes("captionTracks")) {
+                    const tracksMatch = html.match(/"captionTracks"\s*:\s*(\[.*?\])/);
+                    if (tracksMatch) {
+                        const tracks = JSON.parse(tracksMatch[1]);
+                        return await fetchFromTrack(tracks);
+                    }
+                }
+            } catch (innerE) {
+                console.error("[fetchCaptionsDirect] Attempt failed:", innerE.message);
+            }
         }
 
         return "";
-
-    } catch (error: any) {
-        console.error("[fetchCaptionsDirect] Error:", error.message);
+    } catch (e: any) {
+        console.error("[fetchCaptionsDirect] Global failure:", e.message);
         return "";
     }
+}
+
+async function fetchFromTrack(tracks: any[]): Promise<string> {
+    const track = tracks.find((t: any) => t.languageCode === 'en' || t.languageCode === 'en-US') || tracks[0];
+    const captionUrl = track.baseUrl;
+    if (!captionUrl) return "";
+
+    const timedTextRes = await fetch(captionUrl + "&fmt=json3");
+    const json = await timedTextRes.json();
+    if (json.events) {
+        const text = json.events
+            .filter((event: any) => event.segs)
+            .map((event: any) => event.segs.map((seg: any) => seg.utf8).join(""))
+            .join(" ");
+        return decode(text);
+    }
+    return "";
 }
 
 async function getAISummary(text: string) {
