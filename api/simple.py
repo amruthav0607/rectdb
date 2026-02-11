@@ -33,7 +33,7 @@ class handler(BaseHTTPRequestHandler):
                     data = t_obj.to_raw_data()
                     text = " ".join([d.get('text', '') for d in data if isinstance(d, dict)])
                     if text:
-                        self._send_json({"success": True, "text": text, "src": "py-s"})
+                        self._send_json({"success": True, "text": text, "src": "py-s", "v": "v6-final"})
                         return
                 except:
                     pass
