@@ -3,5 +3,6 @@
     "api/*.py": {
       "runtime": "@vercel/python"
     }
-  }
+  },
+  "cr": "v5-final-fix"
 }
