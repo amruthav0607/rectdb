@@ -235,17 +235,37 @@ async function fetchFromTrack(tracks: any[]): Promise<string> {
     const captionUrl = track.baseUrl;
     if (!captionUrl) return "";
 
-    const timedTextRes = await fetch(captionUrl + "&fmt=json3");
-    const json = await timedTextRes.json();
-    if (json.events) {
-        const text = json.events
-            .filter((event: any) => event.segs)
-            .map((event: any) => event.segs.map((seg: any) => seg.utf8).join(""))
-            .join(" ");
-        return decode(text);
-    }
+    // Try JSON format first
+    try {
+        const jsonRes = await fetch(captionUrl + "&fmt=json3");
+        const json = await jsonRes.json();
+        if (json.events) {
+            const text = json.events
+                .filter((event: any) => event.segs)
+                .map((event: any) => event.segs.map((seg: any) => seg.utf8).join(""))
+                .join(" ");
+            const decoded = decode(text);
+            if (decoded.length > 50) return decoded;
+        }
+    } catch { /* JSON parsing failed, try XML */ }
+
+    // Fallback to XML format (ANDROID client returns XML)
+    try {
+        const xmlRes = await fetch(captionUrl);
+        const xml = await xmlRes.text();
+        const textParts: string[] = [];
+        const re = /<text[^>]*>([\s\S]*?)<\/text>/g;
+        let m;
+        while ((m = re.exec(xml)) !== null) {
+            const t = decode(m[1]).trim();
+            if (t) textParts.push(t);
+        }
+        if (textParts.length > 0) return textParts.join(" ");
+    } catch { /* XML parsing also failed */ }
+
     return "";
 }
+
 
 async function getAISummary(text: string) {
     const apiKey = process.env.OPENROUTER_API_KEY;
