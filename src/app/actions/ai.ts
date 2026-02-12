@@ -19,7 +19,6 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         let fullText = "";
 
         // Phase 1: InnerTube API (Fastest & Most Resilient)
-        // We try this first sequentially because it's usually the best bet and low overhead.
         console.log("[summarize] Phase 1: InnerTube API...");
         fullText = await fetchFromInnerTube(videoId);
 
@@ -29,26 +28,26 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             console.log("[summarize] Phase 1 Failed. Starting Phase 2 (Parallel Race)...");
 
             // Phase 2: Parallel Race (The "Thunder Run")
-            // Race multiple strategies against each other. First one to succeed wins.
-            // This is crucial for Vercel's 10s limit.
-
             try {
                 fullText = await Promise.any([
-                    fetchFromProxy(videoId),           // Strategy A: Proxy Rotation
-                    fetchFromPythonAPI(videoId),       // Strategy B: Python API (Self-hosted)
-                    fetchFromYoutubeTranscriptLib(videoId), // Strategy C: npm lib
-                    fetchFromScraper(videoId)          // Strategy D: Direct Scraper
+                    fetchFromProxy(videoId).catch(e => { throw new Error(`Proxy(${e.message})`) }),
+                    fetchFromPythonAPI(videoId).catch(e => { throw new Error(`Python(${e.message})`) }),
+                    fetchFromYoutubeTranscriptLib(videoId).catch(e => { throw new Error(`Lib(${e.message})`) }),
+                    fetchFromScraper(videoId).catch(e => { throw new Error(`Scraper(${e.message})`) })
                 ]);
                 console.log("[summarize] Phase 2 Race Won!");
             } catch (aggregateError: any) {
-                console.error("[summarize] Phase 2 Race Failed (All methods failed).", aggregateError);
+                const errors = aggregateError.errors.map((e: any) => e.message).join(" | ");
+                console.error("[summarize] Phase 2 Race Failed:", errors);
+                return {
+                    error: `[TRANSCRIPT_FAILED] All methods failed on Vercel. Debug Trace: ${errors}`
+                };
             }
         }
 
         if (!fullText) {
-            console.error("[summarize] All methods failed.");
             return {
-                error: "[TRANSCRIPT_BLOCKED] Could not fetch the transcript. YouTube may be blocking our requests from this server IP. Please try a different video or try again later."
+                error: "[TRANSCRIPT_BLOCKED] Could not fetch transcript. YouTube blocked all requests."
             };
         }
 
