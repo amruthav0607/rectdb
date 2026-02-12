@@ -1,11 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
+import { YoutubeTranscript } from "youtube-transcript";
 import { decode } from "html-entities";
 
 export async function GET(request: NextRequest) {
     const videoId = request.nextUrl.searchParams.get("videoId") || "dQw4w9WgXcQ";
     const results: any = { videoId, tests: {} };
 
-    // Test 1: ANDROID InnerTube
+    // Test 1: youtube-transcript npm
+    try {
+        const items = await YoutubeTranscript.fetchTranscript(videoId);
+        if (items && items.length > 0) {
+            const text = items.map((i: any) => decode(i.text)).join(" ");
+            results.tests.youtubeTranscriptNpm = {
+                success: true,
+                itemCount: items.length,
+                textLength: text.length,
+                preview: text.substring(0, 150)
+            };
+        } else {
+            results.tests.youtubeTranscriptNpm = { success: false, reason: "empty items" };
+        }
+    } catch (e: any) {
+        results.tests.youtubeTranscriptNpm = { success: false, error: e.message };
+    }
+
+    // Test 2: youtube-captions-scraper
+    try {
+        const { getSubtitles } = require('youtube-captions-scraper');
+        const captions = await getSubtitles({ videoID: videoId, lang: 'en' });
+        if (captions && captions.length > 0) {
+            const text = captions.map((c: any) => decode(c.text)).join(" ");
+            results.tests.captionsScraper = {
+                success: true,
+                itemCount: captions.length,
+                textLength: text.length,
+                preview: text.substring(0, 150)
+            };
+        } else {
+            results.tests.captionsScraper = { success: false, reason: "empty captions" };
+        }
+    } catch (e: any) {
+        results.tests.captionsScraper = { success: false, error: e.message };
+    }
+
+    // Test 3: ANDROID InnerTube with proper caption URL handling (XML format)
     try {
         const payload = {
             videoId,
@@ -18,81 +56,39 @@ export async function GET(request: NextRequest) {
         });
         const data = await res.json();
         const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-        results.tests.android = {
-            status: res.status,
-            trackCount: tracks ? tracks.length : 0,
-            tracks: tracks ? tracks.map((t: any) => ({ lang: t.languageCode, label: t.name?.simpleText })) : [],
-            hasPlayability: !!data?.playabilityStatus,
-            playabilityStatus: data?.playabilityStatus?.status
+        const playStatus = data?.playabilityStatus?.status;
+
+        results.tests.androidInnerTube = {
+            playabilityStatus: playStatus,
+            trackCount: tracks ? tracks.length : 0
         };
 
-        // If tracks found, try to fetch actual captions
         if (tracks && tracks.length > 0) {
             const track = tracks.find((t: any) => t.languageCode === 'en') || tracks[0];
-            const capRes = await fetch(track.baseUrl + "&fmt=json3");
-            const capJson = await capRes.json();
-            if (capJson.events) {
-                const text = capJson.events
-                    .filter((e: any) => e.segs)
-                    .map((e: any) => e.segs.map((s: any) => s.utf8).join("")).join(" ");
-                results.tests.android.captionTextLength = decode(text).length;
-                results.tests.android.captionPreview = decode(text).substring(0, 100);
+            // Try XML format (not json3) since ANDROID returns XML
+            const capRes = await fetch(track.baseUrl);
+            const capText = await capRes.text();
+            // Parse XML
+            const textParts: string[] = [];
+            const re = /<text[^>]*>([\s\S]*?)<\/text>/g;
+            let m;
+            while ((m = re.exec(capText)) !== null) {
+                textParts.push(decode(m[1]));
+            }
+            if (textParts.length > 0) {
+                const fullText = textParts.join(" ");
+                results.tests.androidInnerTube.captionSuccess = true;
+                results.tests.androidInnerTube.textLength = fullText.length;
+                results.tests.androidInnerTube.preview = fullText.substring(0, 150);
+            } else {
+                results.tests.androidInnerTube.captionSuccess = false;
+                results.tests.androidInnerTube.rawPreview = capText.substring(0, 200);
             }
         }
     } catch (e: any) {
-        results.tests.android = { error: e.message };
+        results.tests.androidInnerTube = { error: e.message };
     }
 
-    // Test 2: IOS InnerTube
-    try {
-        const payload = {
-            videoId,
-            context: { client: { hl: "en", gl: "US", clientName: "IOS", clientVersion: "19.09.3" } },
-            playbackContext: { contentCheckOk: true, racyCheckOk: true }
-        };
-        const res = await fetch("https://www.youtube.com/youtubei/v1/player?key=AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc", {
-            method: "POST", body: JSON.stringify(payload),
-            headers: { "Content-Type": "application/json" }
-        });
-        const data = await res.json();
-        const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-        results.tests.ios = {
-            status: res.status,
-            trackCount: tracks ? tracks.length : 0,
-            playabilityStatus: data?.playabilityStatus?.status
-        };
-    } catch (e: any) {
-        results.tests.ios = { error: e.message };
-    }
-
-    // Test 3: WEB InnerTube
-    try {
-        const payload = {
-            videoId,
-            context: { client: { hl: "en", gl: "US", clientName: "WEB", clientVersion: "2.20241113.01.00" } },
-            playbackContext: { contentCheckOk: true, racyCheckOk: true }
-        };
-        const res = await fetch("https://www.youtube.com/youtubei/v1/player", {
-            method: "POST", body: JSON.stringify(payload),
-            headers: { "Content-Type": "application/json" }
-        });
-        const data = await res.json();
-        const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-        results.tests.web = {
-            status: res.status,
-            trackCount: tracks ? tracks.length : 0,
-            playabilityStatus: data?.playabilityStatus?.status
-        };
-    } catch (e: any) {
-        results.tests.web = { error: e.message };
-    }
-
-    // Test 4: Check env
-    results.env = {
-        hasApiKey: !!process.env.OPENROUTER_API_KEY,
-        nodeEnv: process.env.NODE_ENV,
-        vercelEnv: process.env.VERCEL_ENV || "not-set"
-    };
-
+    results.env = { hasApiKey: !!process.env.OPENROUTER_API_KEY };
     return NextResponse.json(results);
 }
