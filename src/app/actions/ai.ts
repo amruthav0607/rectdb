@@ -27,16 +27,16 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
 
         try {
             fullText = await Promise.any([
-                withTimeout(fetchFromInnerTube(videoId), 4000).catch(e => { throw new Error(`InnerTube(${e.message})`) }),
-                withTimeout(fetchFromProxy(videoId), 5000).catch(e => { throw new Error(`Proxy(${e.message})`) }),
-                withTimeout(fetchFromPythonAPI(videoId), 5000).catch(e => { throw new Error(`Python(${e.message})`) }),
-                withTimeout(fetchFromYoutubeTranscriptLib(videoId), 5000).catch(e => { throw new Error(`Lib(${e.message})`) }),
-                withTimeout(fetchFromScraper(videoId), 5000).catch(e => { throw new Error(`Scraper(${e.message})`) })
+                withTimeout(fetchFromInnerTube(videoId), 4000).then(res => { console.log("Winner: InnerTube"); return res; }).catch(e => { console.error("InnerTube Failed:", e.message); throw new Error(`InnerTube(${e.message})`) }),
+                withTimeout(fetchFromProxy(videoId), 5000).then(res => { console.log("Winner: Proxy"); return res; }).catch(e => { console.error("Proxy Failed:", e.message); throw new Error(`Proxy(${e.message})`) }),
+                withTimeout(fetchFromPythonAPI(videoId), 5000).then(res => { console.log("Winner: Python"); return res; }).catch(e => { console.error("Python Failed:", e.message); throw new Error(`Python(${e.message})`) }),
+                withTimeout(fetchFromYoutubeTranscriptLib(videoId), 5000).then(res => { console.log("Winner: Lib"); return res; }).catch(e => { console.error("Lib Failed:", e.message); throw new Error(`Lib(${e.message})`) }),
+                withTimeout(fetchFromScraper(videoId), 5000).then(res => { console.log("Winner: Scraper"); return res; }).catch(e => { console.error("Scraper Failed:", e.message); throw new Error(`Scraper(${e.message})`) })
             ]);
             console.log("[summarize] Thunder Run Won!");
         } catch (aggregateError: any) {
             const errors = aggregateError.errors.map((e: any) => e.message).join(" | ");
-            console.error("[summarize] Thunder Run Failed:", errors);
+            console.error("[summarize] Thunder Run Failed ALL:", errors);
             return {
                 error: `[TRANSCRIPT_FAILED] All methods failed. Debug Trace: ${errors}`
             };
@@ -112,8 +112,12 @@ async function fetchFromInnerTube(videoId: string): Promise<string> {
             const data = await res.json();
             const tracks = data?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
             if (tracks && tracks.length > 0) {
-                console.log(`[InnerTube] ${client.name} success`);
-                return await fetchFromTrack(tracks);
+                const text = await fetchFromTrack(tracks);
+                if (text && text.length > 50) {
+                    console.log(`[InnerTube] ${client.name} success`);
+                    return text;
+                }
+                console.error(`[InnerTube] ${client.name} empty track`);
             }
         } catch (e: any) {
             console.error(`[InnerTube] ${client.name} error`);
@@ -157,12 +161,18 @@ async function fetchFromProxy(videoId: string): Promise<string> {
                 const enSub = data.subtitles.find((s: any) => s.code?.startsWith("en"));
                 if (enSub) {
                     const subRes = await fetch(enSub.url);
-                    if (subRes.ok) return await subRes.text();
+                    if (subRes.ok) {
+                        const text = await subRes.text();
+                        if (text.length > 50) return text;
+                    }
                 }
             } else if (!isPiped && data.captions?.length) {
                 const cap = data.captions[0];
                 const subRes = await fetch(`${host}${cap.url}`);
-                if (subRes.ok) return await subRes.text();
+                if (subRes.ok) {
+                    const text = await subRes.text();
+                    if (text.length > 50) return text;
+                }
             }
         } catch (e) { /* ignore */ }
     }
