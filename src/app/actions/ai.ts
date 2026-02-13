@@ -18,31 +18,28 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
 
         let fullText = "";
 
-        // Phase 1: InnerTube API (Fastest & Most Resilient)
-        console.log("[summarize] Phase 1: InnerTube API...");
-        fullText = await fetchFromInnerTube(videoId);
+        // Phase 1: The "Thunder Run"
+        // fast: InnerTube (4s), Python (5s), Scraper (5s)
+        // slow: Proxy (8s), Lib (8s)
+        // Race ALL of them. First to succeed wins.
+        // We wrap each in a timeout to ensure they don't hang the Vercel function.
+        console.log("[summarize] Starting Parallel Thunder Run...");
 
-        if (fullText) {
-            console.log("[summarize] Phase 1 Success.");
-        } else {
-            console.log("[summarize] Phase 1 Failed. Starting Phase 2 (Parallel Race)...");
-
-            // Phase 2: Parallel Race (The "Thunder Run")
-            try {
-                fullText = await Promise.any([
-                    fetchFromProxy(videoId).catch(e => { throw new Error(`Proxy(${e.message})`) }),
-                    fetchFromPythonAPI(videoId).catch(e => { throw new Error(`Python(${e.message})`) }),
-                    fetchFromYoutubeTranscriptLib(videoId).catch(e => { throw new Error(`Lib(${e.message})`) }),
-                    fetchFromScraper(videoId).catch(e => { throw new Error(`Scraper(${e.message})`) })
-                ]);
-                console.log("[summarize] Phase 2 Race Won!");
-            } catch (aggregateError: any) {
-                const errors = aggregateError.errors.map((e: any) => e.message).join(" | ");
-                console.error("[summarize] Phase 2 Race Failed:", errors);
-                return {
-                    error: `[TRANSCRIPT_FAILED] All methods failed on Vercel. Debug Trace: ${errors}`
-                };
-            }
+        try {
+            fullText = await Promise.any([
+                withTimeout(fetchFromInnerTube(videoId), 4000).catch(e => { throw new Error(`InnerTube(${e.message})`) }),
+                withTimeout(fetchFromProxy(videoId), 8000).catch(e => { throw new Error(`Proxy(${e.message})`) }),
+                withTimeout(fetchFromPythonAPI(videoId), 5000).catch(e => { throw new Error(`Python(${e.message})`) }),
+                withTimeout(fetchFromYoutubeTranscriptLib(videoId), 8000).catch(e => { throw new Error(`Lib(${e.message})`) }),
+                withTimeout(fetchFromScraper(videoId), 5000).catch(e => { throw new Error(`Scraper(${e.message})`) })
+            ]);
+            console.log("[summarize] Thunder Run Won!");
+        } catch (aggregateError: any) {
+            const errors = aggregateError.errors.map((e: any) => e.message).join(" | ");
+            console.error("[summarize] Thunder Run Failed:", errors);
+            return {
+                error: `[TRANSCRIPT_FAILED] All methods failed on Vercel. Debug Trace: ${errors}`
+            };
         }
 
         if (!fullText) {
@@ -51,13 +48,13 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             };
         }
 
-        // Phase 3: AI Summarization
-        console.log("[summarize] Phase 3: AI Summarization...");
+        // Phase 2: AI Summarization
+        console.log("[summarize] Phase 2: AI Summarization...");
         try {
             const summary = await getAISummary(fullText);
             return { success: summary };
         } catch (aiError: any) {
-            console.error("[summarize] Phase 3 Failure:", aiError.message);
+            console.error("[summarize] Phase 2 Failure:", aiError.message);
             return { error: `[AI_FAIL] ${aiError.message}` };
         }
 
@@ -65,6 +62,13 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         console.error("[summarize] Unexpected Global Error:", error);
         return { error: `[GLOBAL_ERR] ${error.message || "Unknown error"}` };
     }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return Promise.race([
+        promise,
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error("Timeout")), ms))
+    ]);
 }
 
 function extractVideoId(url: string) {
