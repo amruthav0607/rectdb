@@ -73,8 +73,9 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         }
 
         if (!fullText) {
+            console.error("[summarize] All methods failed.");
             return {
-                error: "[TRANSCRIPT_BLOCKED] Could not fetch transcript. YouTube blocked all requests."
+                error: "[TRANSCRIPT_FAILED] Could not fetch transcript. YouTube blocked all requests. Please try a different video."
             };
         }
 
