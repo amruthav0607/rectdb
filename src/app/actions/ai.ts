@@ -25,21 +25,51 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         // We wrap each in a timeout to ensure they don't hang the Vercel function.
         console.log("[summarize] Starting Parallel Thunder Run...");
 
+        // Sequential Fallback Strategy
+        // 1. InnerTube (Fastest, standard)
         try {
-            fullText = await Promise.any([
-                withTimeout(fetchFromInnerTube(videoId), 4000).then(res => { console.log("Winner: InnerTube"); return res; }).catch(e => { console.error("InnerTube Failed:", e.message); throw new Error(`InnerTube(${e.message})`) }),
-                withTimeout(fetchFromProxy(videoId), 5000).then(res => { console.log("Winner: Proxy"); return res; }).catch(e => { console.error("Proxy Failed:", e.message); throw new Error(`Proxy(${e.message})`) }),
-                withTimeout(fetchFromPythonAPI(videoId), 5000).then(res => { console.log("Winner: Python"); return res; }).catch(e => { console.error("Python Failed:", e.message); throw new Error(`Python(${e.message})`) }),
-                withTimeout(fetchFromYoutubeTranscriptLib(videoId), 5000).then(res => { console.log("Winner: Lib"); return res; }).catch(e => { console.error("Lib Failed:", e.message); throw new Error(`Lib(${e.message})`) }),
-                withTimeout(fetchFromScraper(videoId), 5000).then(res => { console.log("Winner: Scraper"); return res; }).catch(e => { console.error("Scraper Failed:", e.message); throw new Error(`Scraper(${e.message})`) })
-            ]);
-            console.log("[summarize] Thunder Run Won!");
-        } catch (aggregateError: any) {
-            const errors = aggregateError.errors.map((e: any) => e.message).join(" | ");
-            console.error("[summarize] Thunder Run Failed ALL:", errors);
-            return {
-                error: `[TRANSCRIPT_FAILED] All methods failed. Debug Trace: ${errors}`
-            };
+            console.log("[summarize] Attempt 1: InnerTube");
+            fullText = await withTimeout(fetchFromInnerTube(videoId), 4000);
+            console.log("[summarize] InnerTube Won!");
+        } catch (e: any) {
+            console.warn("[summarize] InnerTube Failed:", e.message);
+        }
+
+        // 2. Python API (Local, robust)
+        if (!fullText) {
+            try {
+                console.log("[summarize] Attempt 2: Python API");
+                fullText = await withTimeout(fetchFromPythonAPI(videoId), 5000);
+                console.log("[summarize] Python Won!");
+            } catch (e: any) {
+                console.warn("[summarize] Python Failed:", e.message);
+            }
+        }
+
+        // 3. Proxy Rotation (Bypasses IP blocks)
+        if (!fullText) {
+            try {
+                console.log("[summarize] Attempt 3: Proxy");
+                fullText = await withTimeout(fetchFromProxy(videoId), 6000);
+                console.log("[summarize] Proxy Won!");
+            } catch (e: any) {
+                console.warn("[summarize] Proxy Failed:", e.message);
+            }
+        }
+
+        // 4. Scraper / Lib (Last resorts)
+        if (!fullText) {
+            try {
+                console.log("[summarize] Attempt 4: Scraper");
+                fullText = await withTimeout(fetchFromScraper(videoId), 6000);
+                console.log("[summarize] Scraper Won!");
+            } catch (e: any) {
+                console.warn("[summarize] Scraper Failed:", e.message);
+                // Try Node Lib as final hail mary
+                try {
+                    fullText = await withTimeout(fetchFromYoutubeTranscriptLib(videoId), 6000);
+                } catch (err) { /* ignore */ }
+            }
         }
 
         if (!fullText) {
