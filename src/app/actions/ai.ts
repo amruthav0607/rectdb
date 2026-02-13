@@ -28,9 +28,9 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
         try {
             fullText = await Promise.any([
                 withTimeout(fetchFromInnerTube(videoId), 4000).catch(e => { throw new Error(`InnerTube(${e.message})`) }),
-                withTimeout(fetchFromProxy(videoId), 8000).catch(e => { throw new Error(`Proxy(${e.message})`) }),
+                withTimeout(fetchFromProxy(videoId), 5000).catch(e => { throw new Error(`Proxy(${e.message})`) }),
                 withTimeout(fetchFromPythonAPI(videoId), 5000).catch(e => { throw new Error(`Python(${e.message})`) }),
-                withTimeout(fetchFromYoutubeTranscriptLib(videoId), 8000).catch(e => { throw new Error(`Lib(${e.message})`) }),
+                withTimeout(fetchFromYoutubeTranscriptLib(videoId), 5000).catch(e => { throw new Error(`Lib(${e.message})`) }),
                 withTimeout(fetchFromScraper(videoId), 5000).catch(e => { throw new Error(`Scraper(${e.message})`) })
             ]);
             console.log("[summarize] Thunder Run Won!");
@@ -38,7 +38,7 @@ export async function summarizeYouTubeVideo(videoUrl: string) {
             const errors = aggregateError.errors.map((e: any) => e.message).join(" | ");
             console.error("[summarize] Thunder Run Failed:", errors);
             return {
-                error: `[TRANSCRIPT_FAILED] All methods failed on Vercel. Debug Trace: ${errors}`
+                error: `[TRANSCRIPT_FAILED] All methods failed. Debug Trace: ${errors}`
             };
         }
 
@@ -104,7 +104,8 @@ async function fetchFromInnerTube(videoId: string): Promise<string> {
             const res = await fetch(apiUrl, {
                 method: "POST",
                 body: JSON.stringify(payload),
-                headers: { "Content-Type": "application/json" }
+                headers: { "Content-Type": "application/json" },
+                signal: AbortSignal.timeout(3000) // 3s max per InnerTube request
             });
 
             if (!res.ok) continue;
@@ -127,14 +128,11 @@ async function fetchFromProxy(videoId: string): Promise<string> {
     const proxies = [
         "https://pipedapi.kavin.rocks", "https://api.piped.privacy.com.de", "https://pipedapi.drgns.space",
         "https://pipedapi.in.projectsegfau.lt", "https://pipedapi.smnz.de", "https://pipedapi.adminforge.de",
-        "https://pipedapi.astartes.nl", "https://api.piped.yt", "https://pipedapi.ducks.party",
-        "https://inv.nadeko.net", "https://invidious.fdn.fr", "https://vid.puffyan.us",
-        "https://invidious.kavin.rocks", "https://invidious.drgns.space", "https://invidious.privacyredirect.com",
-        "https://invidious.rhysd.net", "https://yt.artemislena.eu", "https://invidious.flokinet.to", "https://yewtu.be"
+        "https://invidious.fdn.fr", "https://vid.puffyan.us", "https://invidious.kavin.rocks"
     ];
 
-    const shuffled = proxies.sort(() => 0.5 - Math.random());
-    const MAX_TIME = 7000; // 7s limit for proxy phase
+    const shuffled = proxies.sort(() => 0.5 - Math.random()).slice(0, 3); // ONLY try 3 proxies max to save time
+    const MAX_TIME = 4500; // 4.5s hard limit for proxy phase
     const startTime = Date.now();
 
     for (const host of shuffled) {
