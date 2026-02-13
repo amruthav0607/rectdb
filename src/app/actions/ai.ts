@@ -119,7 +119,7 @@ async function fetchFromInnerTube(videoId: string): Promise<string> {
             console.error(`[InnerTube] ${client.name} error`);
         }
     }
-    return "";
+    throw new Error("InnerTube failed");
 }
 
 // --- Strategy B: Proxy Rotation ---
