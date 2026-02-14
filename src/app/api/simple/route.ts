@@ -14,7 +14,7 @@ export async function GET(request: Request) {
     // Assuming get_transcript.py is in the project root
     const scriptPath = path.join(process.cwd(), 'get_transcript.py');
 
-    return new Promise((resolve) => {
+    return await new Promise<NextResponse>((resolve) => {
         exec(`python "${scriptPath}" ${videoId}`, (error, stdout, stderr) => {
             if (error) {
                 console.error(`[Python API] Error executing script: ${error.message}`);
@@ -23,7 +23,6 @@ export async function GET(request: Request) {
             }
             if (stderr) {
                 console.error(`[Python API] Script stderr: ${stderr}`);
-                // return resolve(NextResponse.json({ success: false, error: stderr }, { status: 500 }));
             }
 
             try {
