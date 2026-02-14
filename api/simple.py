@@ -47,8 +47,12 @@ class handler(BaseHTTPRequestHandler):
                     if "blocked" in error_msg.lower() or "403" in error_msg or "sign" in error_msg.lower():
                         self._send_json({"success": False, "error": "YouTube blocked this request. Fallback mode will be triggered."}, 200)
                         return
+                    
+                    # Return the actual error for debugging
+                    self._send_json({"success": False, "error": f"No transcript found: {error_msg}"}, 200)
+                    return
 
-            self._send_json({"success": False, "error": "No transcript found for this video."}, 200)
+            self._send_json({"success": False, "error": "No transcript found (unexpected flow)."}, 200)
 
         except Exception as ge:
             self._send_json({"success": False, "error": f"Internal error: {str(ge)}"}, 500)
