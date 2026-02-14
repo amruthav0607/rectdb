@@ -224,6 +224,8 @@ async function fetchFromPythonAPI(videoId: string): Promise<string> {
         if (result.success && result.text && result.text.length > 50) {
             console.log("[Python] Success");
             return result.text;
+        } else {
+            console.error("[Python] Failed Response:", JSON.stringify(result));
         }
     } catch (e: any) {
         console.error("[Python] Error:", e.message);
